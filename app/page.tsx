@@ -18,7 +18,7 @@ export default function Home() {
     <div className="flex h-full items-center justify-center bg-green-800">
       <div className="text-center">
         <div className="text-6xl mb-4">🐄</div>
-        <p className="text-white text-xl font-bold">Trato Bovino</p>
+        <p className="text-white text-xl font-bold">TIPfeed</p>
       </div>
     </div>
   );

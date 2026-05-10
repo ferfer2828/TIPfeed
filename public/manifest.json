@@ -1,6 +1,6 @@
 {
-  "name": "Trato Bovino",
-  "short_name": "Trato Bovino",
+  "name": "TIPfeed",
+  "short_name": "TIPfeed",
   "description": "Gestão de trato em confinamento bovino",
   "start_url": "/",
   "display": "standalone",

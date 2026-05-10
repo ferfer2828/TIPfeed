@@ -30,7 +30,7 @@ export default function LoginPage() {
     <div className="min-h-full flex flex-col items-center justify-center bg-green-800 p-4">
       <div className="text-center mb-8">
         <div className="text-6xl mb-3">🐄</div>
-        <h1 className="text-3xl font-extrabold text-white">Trato Bovino</h1>
+        <h1 className="text-3xl font-extrabold text-white">TIPfeed</h1>
         <p className="text-green-300 mt-1">Confinamento</p>
       </div>
 
