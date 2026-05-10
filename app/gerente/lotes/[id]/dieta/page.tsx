@@ -2,6 +2,7 @@
 import { useEffect, useState, Suspense } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { getLote, getDietaDias, salvarDietaDias } from '@/lib/firestore';
+import { useAuth } from '@/contexts/AuthContext';
 import { format, addDays, differenceInDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import type { Lote, DietaDia } from '@/types';
@@ -34,6 +35,7 @@ function DietaPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const isNovo = searchParams.get('novo') === '1';
+  const { usuario } = useAuth();
 
   const [lote, setLote] = useState<Lote | null>(null);
   const [dias, setDias] = useState<DiaDieta[]>([]);
@@ -47,6 +49,7 @@ function DietaPage() {
   const [periodos, setPeriodos] = useState<{ kg: string }[]>([]);
 
   useEffect(() => {
+    if (!usuario) return;
     Promise.all([getLote(id), getDietaDias(id)]).then(([l, dietas]) => {
       if (!l) return;
       setLote(l);
@@ -73,8 +76,9 @@ function DietaPage() {
         return { kg: String(kg) };
       });
       setPeriodos(perGerados);
-    }).finally(() => setCarregando(false));
-  }, [id]);
+    }).catch(e => console.error('Erro ao carregar dieta:', e))
+      .finally(() => setCarregando(false));
+  }, [id, usuario]);
 
   function aplicarPeriodos() {
     if (!lote) return;
@@ -132,8 +136,25 @@ function DietaPage() {
     }
   }
 
-  if (carregando) return <div className="flex h-full items-center justify-center"><p className="text-gray-400">Carregando...</p></div>;
-  if (!lote) return <div className="flex h-full items-center justify-center"><p className="text-gray-400">Lote não encontrado.</p></div>;
+  if (carregando) return (
+    <div className="flex h-full items-center justify-center bg-gray-50">
+      <p className="text-gray-400">Carregando dieta...</p>
+    </div>
+  );
+  if (!lote) return (
+    <div className="flex flex-col h-full items-center justify-center bg-gray-50 gap-4 px-8 text-center">
+      <p className="text-gray-400">Erro ao carregar o lote.</p>
+      <button
+        onClick={() => { setCarregando(true); if (usuario) Promise.all([getLote(id), getDietaDias(id)]).then(([l, dietas]) => { if (l) { setLote(l); } }).finally(() => setCarregando(false)); }}
+        className="bg-green-700 text-white font-bold px-6 py-3 rounded-xl"
+      >
+        Tentar novamente
+      </button>
+      <button onClick={() => router.back()} className="text-gray-400 text-sm underline">
+        Voltar
+      </button>
+    </div>
+  );
 
   const hoje = format(new Date(), 'yyyy-MM-dd');
   const totalDias = dias.length;
