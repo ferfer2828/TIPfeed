@@ -31,17 +31,15 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-full flex flex-col items-center justify-center bg-green-800 p-4">
-      <div className="text-center mb-8">
-        <div className="bg-white rounded-2xl px-10 py-5 inline-block shadow-xl">
-          <Image
-            src="/logo.png"
-            alt="TIPfeed"
-            width={280}
-            height={140}
-            className="object-contain"
-            priority
-          />
-        </div>
+      <div className="w-full px-4 mb-8">
+        <Image
+          src="/logo.png"
+          alt="TIPfeed"
+          width={500}
+          height={250}
+          className="object-contain w-full max-w-sm mx-auto"
+          priority
+        />
       </div>
 
       <div className="w-full max-w-sm bg-white rounded-2xl shadow-2xl p-6">
