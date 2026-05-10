@@ -1,0 +1,151 @@
+'use client';
+import { useEffect, useState } from 'react';
+import { useAuth } from '@/contexts/AuthContext';
+import { getLotes, getTratosByFazendaData, getInsumos } from '@/lib/firestore';
+import { format } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
+import Link from 'next/link';
+import type { Lote, Insumo, Trato } from '@/types';
+
+export default function GerentePainel() {
+  const { usuario, signOut } = useAuth();
+  const [lotes, setLotes] = useState<Lote[]>([]);
+  const [tratos, setTratos] = useState<Trato[]>([]);
+  const [insumos, setInsumos] = useState<Insumo[]>([]);
+  const [carregando, setCarregando] = useState(true);
+
+  const hoje = format(new Date(), 'yyyy-MM-dd');
+
+  useEffect(() => {
+    if (!usuario) return;
+    Promise.all([
+      getLotes(usuario.fazendaId),
+      getTratosByFazendaData(usuario.fazendaId, hoje),
+      getInsumos(usuario.fazendaId),
+    ]).then(([l, t, i]) => {
+      setLotes(l);
+      setTratos(t);
+      setInsumos(i);
+    }).finally(() => setCarregando(false));
+  }, [usuario, hoje]);
+
+  const alertas = insumos.filter(i => i.alertaAtivo);
+  const dataFormatada = format(new Date(), "EEEE, d 'de' MMMM", { locale: ptBR });
+
+  return (
+    <div className="min-h-full bg-gray-50">
+      {/* Header */}
+      <div className="bg-green-700 px-4 pt-10 pb-6">
+        <div className="flex items-start justify-between">
+          <div>
+            <p className="text-green-200 text-sm capitalize">{dataFormatada}</p>
+            <h1 className="text-white text-2xl font-extrabold mt-0.5">
+              Olá, {usuario?.nome.split(' ')[0]} 👋
+            </h1>
+          </div>
+          <button
+            onClick={signOut}
+            className="text-green-200 text-xs mt-1 border border-green-500 px-3 py-1.5 rounded-lg"
+          >
+            Sair
+          </button>
+        </div>
+      </div>
+
+      <div className="px-4 -mt-4">
+        {/* Cards de resumo */}
+        <div className="grid grid-cols-3 gap-3 mb-5">
+          <div className="bg-white rounded-2xl shadow-sm p-3 text-center">
+            <p className="text-3xl font-extrabold text-green-700">{lotes.length}</p>
+            <p className="text-xs text-gray-500 mt-0.5">Lotes ativos</p>
+          </div>
+          <div className="bg-white rounded-2xl shadow-sm p-3 text-center">
+            <p className="text-3xl font-extrabold text-blue-600">{tratos.length}</p>
+            <p className="text-xs text-gray-500 mt-0.5">Tratos hoje</p>
+          </div>
+          <div className={`rounded-2xl shadow-sm p-3 text-center ${alertas.length > 0 ? 'bg-red-50' : 'bg-white'}`}>
+            <p className={`text-3xl font-extrabold ${alertas.length > 0 ? 'text-red-600' : 'text-gray-700'}`}>
+              {alertas.length}
+            </p>
+            <p className="text-xs text-gray-500 mt-0.5">Alertas</p>
+          </div>
+        </div>
+
+        {/* Alertas de insumos */}
+        {alertas.length > 0 && (
+          <div className="mb-5">
+            <h2 className="text-sm font-bold text-gray-700 mb-2">⚠️ Alertas de Insumos</h2>
+            <div className="space-y-2">
+              {alertas.map(a => (
+                <div key={a.id} className="bg-red-50 border border-red-200 rounded-xl p-3">
+                  <p className="font-semibold text-red-700 text-sm">{a.nome}</p>
+                  <p className="text-red-500 text-xs mt-0.5">{a.mensagemAlerta}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Lotes do dia */}
+        <div className="mb-5">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-sm font-bold text-gray-700">Lotes ativos</h2>
+            <Link href="/gerente/lotes" className="text-xs text-green-700 font-semibold">Ver todos →</Link>
+          </div>
+          {carregando ? (
+            <div className="bg-white rounded-2xl p-6 text-center">
+              <p className="text-gray-400 text-sm">Carregando...</p>
+            </div>
+          ) : lotes.length === 0 ? (
+            <div className="bg-white rounded-2xl p-6 text-center">
+              <p className="text-gray-400 text-sm">Nenhum lote ativo</p>
+              <Link href="/gerente/lotes/novo" className="text-green-700 text-sm font-semibold mt-2 block">
+                + Criar lote
+              </Link>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {lotes.slice(0, 4).map(lote => {
+                const tratosLote = tratos.filter(t => t.loteId === lote.id);
+                const diasConfinamento = Math.floor(
+                  (new Date().getTime() - new Date(lote.dataInicio).getTime()) / (1000 * 60 * 60 * 24)
+                );
+                return (
+                  <Link key={lote.id} href={`/gerente/lotes/${lote.id}`}>
+                    <div className="bg-white rounded-2xl shadow-sm p-4 flex items-center justify-between active:bg-gray-50">
+                      <div>
+                        <p className="font-bold text-gray-800 text-sm">{lote.nome}</p>
+                        <p className="text-xs text-gray-400">{lote.invernada} · {lote.quantidadeBois} bois · Dia {diasConfinamento + 1}</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-xs font-bold px-2 py-1 rounded-full ${
+                          tratosLote.length >= lote.numTratosDia
+                            ? 'bg-green-100 text-green-700'
+                            : 'bg-orange-100 text-orange-700'
+                        }`}>
+                          {tratosLote.length}/{lote.numTratosDia}
+                        </span>
+                        <span className="text-gray-300">›</span>
+                      </div>
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Ação rápida */}
+        <Link href="/gerente/lotes/novo">
+          <div className="bg-green-700 rounded-2xl p-4 flex items-center gap-3 mb-6 active:bg-green-800">
+            <div className="w-10 h-10 bg-green-600 rounded-xl flex items-center justify-center text-xl">+</div>
+            <div>
+              <p className="text-white font-bold text-sm">Novo lote</p>
+              <p className="text-green-200 text-xs">Cadastrar novo confinamento</p>
+            </div>
+          </div>
+        </Link>
+      </div>
+    </div>
+  );
+}

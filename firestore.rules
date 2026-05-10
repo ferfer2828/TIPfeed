@@ -1,0 +1,98 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Verifica se o usuário está autenticado
+    function autenticado() {
+      return request.auth != null;
+    }
+
+    // Retorna os dados do usuário no Firestore
+    function dadosUsuario() {
+      return get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data;
+    }
+
+    // Verifica se é gerente da fazenda
+    function eGerenteDa(fazendaId) {
+      return autenticado()
+        && dadosUsuario().perfil == 'gerente'
+        && dadosUsuario().fazendaId == fazendaId;
+    }
+
+    // Verifica se pertence à fazenda (gerente ou peão)
+    function pertenceAFazenda(fazendaId) {
+      return autenticado()
+        && dadosUsuario().fazendaId == fazendaId;
+    }
+
+    // ── Fazendas ──────────────────────────────────────────────────────────────
+    match /fazendas/{fazendaId} {
+      allow read: if pertenceAFazenda(fazendaId);
+      allow create: if autenticado() && request.auth.uid == fazendaId;
+      allow update: if eGerenteDa(fazendaId);
+    }
+
+    // ── Usuários ──────────────────────────────────────────────────────────────
+    match /usuarios/{uid} {
+      allow read: if autenticado()
+        && (request.auth.uid == uid
+          || dadosUsuario().fazendaId == resource.data.fazendaId);
+      allow create: if autenticado() && request.auth.uid == uid;
+      allow update: if autenticado() && request.auth.uid == uid;
+    }
+
+    // ── Convites ──────────────────────────────────────────────────────────────
+    match /convites/{codigo} {
+      allow read: if autenticado();
+      allow create: if autenticado() && eGerenteDa(request.resource.data.fazendaId);
+      allow update: if autenticado(); // peão marca como usado ao registrar
+    }
+
+    // ── Lotes ─────────────────────────────────────────────────────────────────
+    match /lotes/{loteId} {
+      allow read: if autenticado()
+        && pertenceAFazenda(resource.data.fazendaId);
+      allow create, update: if eGerenteDa(request.resource.data.fazendaId);
+    }
+
+    // ── Dieta Dias ────────────────────────────────────────────────────────────
+    match /dieta_dias/{diaId} {
+      allow read: if autenticado()
+        && pertenceAFazenda(resource.data.fazendaId);
+      allow write: if eGerenteDa(request.resource.data.fazendaId);
+    }
+
+    // ── Tratos ────────────────────────────────────────────────────────────────
+    match /tratos/{tratoId} {
+      allow read: if autenticado()
+        && pertenceAFazenda(resource.data.fazendaId);
+      allow create: if autenticado()
+        && pertenceAFazenda(request.resource.data.fazendaId)
+        && request.resource.data.funcionarioId == request.auth.uid;
+      allow update: if eGerenteDa(resource.data.fazendaId);
+    }
+
+    // ── Leitura Cocho ─────────────────────────────────────────────────────────
+    match /leituras_cocho/{leituraId} {
+      allow read: if autenticado()
+        && pertenceAFazenda(resource.data.fazendaId);
+      allow create, update: if autenticado()
+        && pertenceAFazenda(request.resource.data.fazendaId)
+        && request.resource.data.funcionarioId == request.auth.uid;
+    }
+
+    // ── Insumos ───────────────────────────────────────────────────────────────
+    match /insumos/{insumoId} {
+      allow read: if autenticado()
+        && pertenceAFazenda(resource.data.fazendaId);
+      allow write: if eGerenteDa(request.resource.data.fazendaId);
+    }
+
+    // ── Recebimentos de Insumo ────────────────────────────────────────────────
+    match /recebimentos_insumo/{recId} {
+      allow read: if autenticado()
+        && pertenceAFazenda(resource.data.fazendaId);
+      allow create: if eGerenteDa(request.resource.data.fazendaId);
+    }
+  }
+}
