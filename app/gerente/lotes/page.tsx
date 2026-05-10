@@ -19,7 +19,7 @@ export default function LotesPage() {
     setCarregando(false);
   }
 
-  useEffect(() => { carregar(); }, [usuario]);
+  useEffect(() => { if (usuario) carregar(); }, [usuario]);
 
   async function moverOrdem(index: number, direcao: 'up' | 'down') {
     const novaLista = [...lotes];

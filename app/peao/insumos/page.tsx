@@ -22,7 +22,7 @@ export default function PeaoInsumosPage() {
     }
   }
 
-  useEffect(() => { carregar(); }, [usuario]);
+  useEffect(() => { if (usuario) carregar(); }, [usuario]);
 
   return (
     <div className="min-h-full bg-gray-50">

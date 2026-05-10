@@ -46,7 +46,7 @@ export default function TratoGerentePage() {
     }
   }
 
-  useEffect(() => { carregar(); }, [usuario]);
+  useEffect(() => { if (usuario) carregar(); }, [usuario]);
 
   // Recarrega ao voltar para a tela
   useEffect(() => {

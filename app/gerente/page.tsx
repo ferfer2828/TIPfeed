@@ -35,7 +35,7 @@ export default function GerentePainel() {
   }
 
   useEffect(() => {
-    carregar();
+    if (usuario) carregar();
   }, [usuario]);
 
   // Recarrega ao voltar para a aba/página

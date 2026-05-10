@@ -20,28 +20,54 @@ export default function LoteDetailPage() {
   const [leituras, setLeituras] = useState<LeituraCocho[]>([]);
   const [dietas, setDietas] = useState<DietaDia[]>([]);
   const [carregando, setCarregando] = useState(true);
+  const [erro, setErro] = useState('');
   const [aba, setAba] = useState<'tratos' | 'cocho'>('tratos');
   const [modalTrato, setModalTrato] = useState(false);
 
   const hoje = format(new Date(), 'yyyy-MM-dd');
 
   async function carregar() {
+    setCarregando(true);
+    setErro('');
     try {
       const [l, t, lc, d] = await Promise.all([
         getLote(id), getTratosByLote(id), getLeiturasCochoByLote(id), getDietaDias(id),
       ]);
       setLote(l); setTratos(t); setLeituras(lc); setDietas(d);
-    } catch (e) {
+    } catch (e: any) {
       console.error('Erro ao carregar lote:', e);
+      setErro(e?.message ?? 'Erro ao carregar. Tente novamente.');
     } finally {
       setCarregando(false);
     }
   }
 
-  useEffect(() => { carregar(); }, [id]);
+  // Aguarda o usuário estar autenticado antes de carregar
+  useEffect(() => {
+    if (usuario) carregar();
+  }, [id, usuario]);
 
-  if (carregando) return <div className="flex h-full items-center justify-center"><p className="text-gray-400">Carregando...</p></div>;
-  if (!lote) return <div className="flex h-full items-center justify-center"><p className="text-gray-400">Lote não encontrado.</p></div>;
+  if (carregando) return (
+    <div className="flex h-full items-center justify-center bg-gray-50">
+      <p className="text-gray-400">Carregando...</p>
+    </div>
+  );
+  if (erro) return (
+    <div className="flex flex-col h-full items-center justify-center bg-gray-50 gap-4 px-8">
+      <p className="text-red-500 text-sm text-center">Erro ao carregar lote.</p>
+      <button onClick={carregar} className="bg-green-700 text-white font-bold px-6 py-3 rounded-xl">
+        Tentar novamente
+      </button>
+    </div>
+  );
+  if (!lote) return (
+    <div className="flex flex-col h-full items-center justify-center bg-gray-50 gap-4 px-8">
+      <p className="text-gray-400 text-sm text-center">Lote não encontrado.</p>
+      <button onClick={() => router.back()} className="bg-green-700 text-white font-bold px-6 py-3 rounded-xl">
+        Voltar
+      </button>
+    </div>
+  );
 
   const hoje2 = new Date();
   const diasConfinamento = differenceInDays(hoje2, new Date(lote.dataInicio)) + 1;
