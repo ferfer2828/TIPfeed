@@ -16,18 +16,37 @@ export default function GerentePainel() {
 
   const hoje = format(new Date(), 'yyyy-MM-dd');
 
-  useEffect(() => {
+  async function carregar() {
     if (!usuario) return;
-    Promise.all([
-      getLotes(usuario.fazendaId),
-      getTratosByFazendaData(usuario.fazendaId, hoje),
-      getInsumos(usuario.fazendaId),
-    ]).then(([l, t, i]) => {
+    try {
+      const [l, t, i] = await Promise.all([
+        getLotes(usuario.fazendaId),
+        getTratosByFazendaData(usuario.fazendaId, hoje),
+        getInsumos(usuario.fazendaId),
+      ]);
       setLotes(l);
       setTratos(t);
       setInsumos(i);
-    }).finally(() => setCarregando(false));
-  }, [usuario, hoje]);
+    } catch (e) {
+      console.error('Erro ao carregar painel:', e);
+    } finally {
+      setCarregando(false);
+    }
+  }
+
+  useEffect(() => {
+    carregar();
+  }, [usuario]);
+
+  // Recarrega ao voltar para a aba/página
+  useEffect(() => {
+    const onFocus = () => carregar();
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') carregar();
+    });
+    return () => window.removeEventListener('focus', onFocus);
+  }, [usuario]);
 
   const alertas = insumos.filter(i => i.alertaAtivo);
   const dataFormatada = format(new Date(), "EEEE, d 'de' MMMM", { locale: ptBR });

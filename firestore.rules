@@ -43,9 +43,9 @@ service cloud.firestore {
 
     // ── Convites ──────────────────────────────────────────────────────────────
     match /convites/{codigo} {
-      allow read: if autenticado();
+      allow read: if true; // leitura pública para validar código antes de logar
       allow create: if autenticado() && eGerenteDa(request.resource.data.fazendaId);
-      allow update: if autenticado(); // peão marca como usado ao registrar
+      allow update: if true; // peão não autenticado marca como usado ao registrar
     }
 
     // ── Lotes ─────────────────────────────────────────────────────────────────
