@@ -4,6 +4,8 @@ import { useRouter } from 'next/navigation';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
 import Link from 'next/link';
+import Image from 'next/image';
+import SplashScreen from '../components/SplashScreen';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -21,17 +23,23 @@ export default function LoginPage() {
       router.replace('/');
     } catch {
       setErro('E-mail ou senha incorretos.');
-    } finally {
       setCarregando(false);
     }
   }
 
+  if (carregando) return <SplashScreen />;
+
   return (
     <div className="min-h-full flex flex-col items-center justify-center bg-green-800 p-4">
       <div className="text-center mb-8">
-        <div className="text-6xl mb-3">🐄</div>
-        <h1 className="text-3xl font-extrabold text-white">TIPfeed</h1>
-        <p className="text-green-300 mt-1">Confinamento</p>
+        <Image
+          src="/logo.png"
+          alt="TIPfeed"
+          width={220}
+          height={110}
+          className="object-contain brightness-0 invert mx-auto"
+          priority
+        />
       </div>
 
       <div className="w-full max-w-sm bg-white rounded-2xl shadow-2xl p-6">
@@ -63,10 +71,9 @@ export default function LoginPage() {
 
           <button
             type="submit"
-            disabled={carregando}
-            className="w-full bg-green-700 hover:bg-green-800 text-white font-bold py-3 rounded-xl transition disabled:opacity-60"
+            className="w-full bg-green-700 hover:bg-green-800 text-white font-bold py-3 rounded-xl transition"
           >
-            {carregando ? 'Entrando...' : 'Entrar'}
+            Entrar
           </button>
         </form>
 

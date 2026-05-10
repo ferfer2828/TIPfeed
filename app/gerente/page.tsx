@@ -99,9 +99,6 @@ export default function GerentePainel() {
           ) : lotes.length === 0 ? (
             <div className="bg-white rounded-2xl p-6 text-center">
               <p className="text-gray-400 text-sm">Nenhum lote ativo</p>
-              <Link href="/gerente/lotes/novo" className="text-green-700 text-sm font-semibold mt-2 block">
-                + Criar lote
-              </Link>
             </div>
           ) : (
             <div className="space-y-2">

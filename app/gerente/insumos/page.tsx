@@ -279,12 +279,14 @@ function ModalHistorico({ insumo, onClose }: { insumo: Insumo; onClose: () => vo
 function ModalBase({ titulo, onClose, children }: { titulo: string; onClose: () => void; children: React.ReactNode }) {
   return (
     <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50">
-      <div className="bg-white rounded-t-2xl w-full max-w-lg p-5 pb-8 max-h-[85vh] overflow-y-auto">
-        <div className="flex justify-between items-center mb-4">
+      <div className="bg-white rounded-t-2xl w-full max-w-lg flex flex-col" style={{ maxHeight: '90vh' }}>
+        <div className="flex justify-between items-center p-5 border-b border-gray-100 flex-shrink-0">
           <h3 className="font-bold text-gray-800">{titulo}</h3>
           <button onClick={onClose} className="text-gray-400 text-xl leading-none p-1">✕</button>
         </div>
-        {children}
+        <div className="overflow-y-auto flex-1 p-5 pb-8">
+          {children}
+        </div>
       </div>
     </div>
   );

@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEffect } from 'react';
+import SplashScreen from '../components/SplashScreen';
 
 const tabs = [
   { href: '/peao', label: 'Início', icon: HomeIcon },
@@ -21,11 +22,7 @@ export default function PeaoLayout({ children }: { children: React.ReactNode }) 
   }, [usuario, carregando, router]);
 
   if (carregando || !usuario) {
-    return (
-      <div className="flex h-full items-center justify-center bg-green-800">
-        <p className="text-white text-lg">Carregando...</p>
-      </div>
-    );
+    return <SplashScreen />;
   }
 
   const isActive = (href: string) => {
