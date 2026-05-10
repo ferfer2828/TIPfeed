@@ -12,10 +12,20 @@ export default function LotesPage() {
   const [carregando, setCarregando] = useState(true);
   const [confirmandoId, setConfirmandoId] = useState<string | null>(null);
 
-  async function carregar() {
+  async function carregar(tentativas = 3) {
     if (!usuario) return;
-    const l = await getLotes(usuario.fazendaId);
-    setLotes(l);
+    setCarregando(true);
+    for (let i = 0; i < tentativas; i++) {
+      try {
+        if (i > 0) await new Promise(r => setTimeout(r, i * 1000));
+        const l = await getLotes(usuario.fazendaId);
+        setLotes(l);
+        setCarregando(false);
+        return;
+      } catch (e) {
+        console.error(`Tentativa ${i + 1}:`, e);
+      }
+    }
     setCarregando(false);
   }
 
@@ -60,7 +70,15 @@ export default function LotesPage() {
           <p className="text-center text-gray-400 py-10">Carregando...</p>
         ) : lotes.length === 0 ? (
           <div className="text-center py-10">
-            <p className="text-gray-400 mb-4">Nenhum lote ativo</p>
+            <p className="text-4xl mb-3">🐄</p>
+            <p className="text-gray-500 font-semibold mb-2">Nenhum lote ativo</p>
+            <p className="text-gray-400 text-sm mb-4">Se acabou de cadastrar, aguarde e recarregue.</p>
+            <button
+              onClick={() => carregar(4)}
+              className="bg-green-700 text-white font-bold px-5 py-2.5 rounded-xl text-sm active:bg-green-800"
+            >
+              🔄 Recarregar
+            </button>
           </div>
         ) : (
           <div className="space-y-3 mb-4">

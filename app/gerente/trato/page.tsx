@@ -25,25 +25,29 @@ export default function TratoGerentePage() {
   const hoje = format(new Date(), 'yyyy-MM-dd');
   const dataFormatada = format(new Date(), "EEEE, d 'de' MMMM", { locale: ptBR });
 
-  async function carregar() {
+  async function carregar(tentativas = 3) {
     if (!usuario) return;
     setCarregando(true);
-    try {
-      const lotes = await getLotes(usuario.fazendaId);
-      const todosTratos = await getTratosByFazendaData(usuario.fazendaId, hoje);
-      const infos = await Promise.all(
-        lotes.map(async lote => {
-          const dieta = await getDietaDiaByData(lote.id, hoje);
-          const tratos = todosTratos.filter(t => t.loteId === lote.id);
-          return { lote, dietaHoje: dieta, tratosHoje: tratos };
-        })
-      );
-      setLotesInfo(infos);
-    } catch (e) {
-      console.error('Erro ao carregar tratos:', e);
-    } finally {
-      setCarregando(false);
+    for (let i = 0; i < tentativas; i++) {
+      try {
+        if (i > 0) await new Promise(r => setTimeout(r, i * 1000));
+        const lotes = await getLotes(usuario.fazendaId);
+        const todosTratos = await getTratosByFazendaData(usuario.fazendaId, hoje);
+        const infos = await Promise.all(
+          lotes.map(async lote => {
+            const dieta = await getDietaDiaByData(lote.id, hoje);
+            const tratos = todosTratos.filter(t => t.loteId === lote.id);
+            return { lote, dietaHoje: dieta, tratosHoje: tratos };
+          })
+        );
+        setLotesInfo(infos);
+        setCarregando(false);
+        return;
+      } catch (e) {
+        console.error(`Tentativa ${i + 1}:`, e);
+      }
     }
+    setCarregando(false);
   }
 
   useEffect(() => { if (usuario) carregar(); }, [usuario]);
@@ -128,7 +132,15 @@ export default function TratoGerentePage() {
           <div className="bg-white rounded-2xl p-8 text-center">
             <p className="text-4xl mb-3">🐄</p>
             <p className="text-gray-500 font-semibold">Nenhum lote ativo</p>
-            <p className="text-gray-400 text-sm mt-1">Cadastre um lote para começar.</p>
+            <p className="text-gray-400 text-sm mt-2 mb-4">
+              Se você acabou de cadastrar um lote, aguarde alguns segundos e recarregue.
+            </p>
+            <button
+              onClick={() => carregar(4)}
+              className="bg-green-700 text-white font-bold px-6 py-3 rounded-xl active:bg-green-800 text-sm"
+            >
+              🔄 Recarregar lotes
+            </button>
           </div>
         ) : (
           <div className="space-y-3">

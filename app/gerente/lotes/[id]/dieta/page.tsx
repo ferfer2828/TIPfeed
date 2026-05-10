@@ -132,14 +132,16 @@ function DietaPage() {
   async function salvar() {
     if (!lote) return;
     setErro('');
-    const incompletos = dias.filter(d => !d.kg || Number(d.kg) <= 0);
-    if (incompletos.length > 0) {
-      setErro(`${incompletos.length} dia(s) sem valor. Aplique os períodos ou preencha manualmente.`);
+    // Salva apenas os dias preenchidos — dias futuros sem valor são normais
+    // (preenchidos conforme leitura de cocho e score de fezes)
+    const diasPreenchidos = dias.filter(d => d.kg && Number(d.kg) > 0);
+    if (diasPreenchidos.length === 0) {
+      setErro('Preencha pelo menos um período antes de salvar.');
       return;
     }
     setSalvando(true);
     try {
-      const dietaDias: DietaDia[] = dias.map(d => ({
+      const dietaDias: DietaDia[] = diasPreenchidos.map(d => ({
         id: `${id}_dia${d.dia}`,
         loteId: id,
         fazendaId: lote.fazendaId,
@@ -152,7 +154,7 @@ function DietaPage() {
       setTimeout(() => {
         if (isNovo) router.replace('/gerente/lotes');
         else router.back();
-      }, 1000);
+      }, 800);
     } catch {
       setErro('Erro ao salvar. Tente novamente.');
     } finally {
@@ -336,9 +338,14 @@ function DietaPage() {
       <div className="flex-shrink-0 bg-white border-t border-gray-200 px-4 py-3">
         {erro && <p className="text-red-500 text-sm text-center mb-2">{erro}</p>}
         {salvo && <p className="text-green-600 text-sm text-center mb-2 font-semibold">✓ Dieta salva!</p>}
-        <button onClick={salvar} disabled={salvando || salvo}
+        {!salvo && !salvando && preenchidos < totalDias && (
+          <p className="text-xs text-gray-400 text-center mb-2">
+            {preenchidos} de {totalDias} dias preenchidos · os demais serão ajustados conforme leitura de cocho
+          </p>
+        )}
+        <button onClick={salvar} disabled={salvando || salvo || preenchidos === 0}
           className="w-full bg-green-700 text-white font-bold py-4 rounded-2xl disabled:opacity-60 active:bg-green-800">
-          {salvando ? 'Salvando...' : salvo ? 'Salvo!' : `Salvar dieta (${preenchidos}/${totalDias} dias)`}
+          {salvando ? 'Salvando...' : salvo ? '✓ Salvo!' : preenchidos === 0 ? 'Preencha ao menos um período' : `Salvar dieta (${preenchidos} dias)`}
         </button>
       </div>
     </div>
