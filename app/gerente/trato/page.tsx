@@ -271,16 +271,21 @@ function ModalLancarTrato({ lote, tratosHoje, dietaHoje, usuario, onClose, onSal
   const tratoNum = tratosHoje.length + 1;
   const todosFeitos = tratosHoje.length >= lote.numTratosDia;
 
+  // Sugestão inteligente: divide pelo nº de tratos no 1º trato, resto nos seguintes
   const sugestao = dietaHoje
-    ? Math.max(0, dietaHoje.quantidadeRecomendada - jaLancado)
+    ? tratosHoje.length === 0 && lote.numTratosDia > 1
+      ? Math.round(dietaHoje.quantidadeRecomendada / lote.numTratosDia)
+      : Math.max(0, dietaHoje.quantidadeRecomendada - jaLancado)
     : 0;
+
   const [quantidade, setQuantidade] = useState(sugestao > 0 ? String(sugestao) : '');
   const [salvando, setSalvando] = useState(false);
+  const [salvo, setSalvo] = useState(false);
   const [erro, setErro] = useState('');
 
   async function salvar() {
     const qtd = Number(quantidade);
-    if (!qtd || qtd <= 0) { setErro('Informe a quantidade.'); return; }
+    if (!qtd || qtd <= 0) { setErro('Informe a quantidade em kg.'); return; }
     if (todosFeitos) { setErro('Todos os tratos do dia já foram lançados.'); return; }
     setSalvando(true);
     try {
@@ -296,10 +301,10 @@ function ModalLancarTrato({ lote, tratosHoje, dietaHoje, usuario, onClose, onSal
         funcionarioNome: usuario.nome,
         criadoEm: new Date().toISOString(),
       });
-      onSalvo();
+      setSalvo(true);
+      setTimeout(() => onSalvo(), 900);
     } catch {
       setErro('Erro ao salvar. Tente novamente.');
-    } finally {
       setSalvando(false);
     }
   }
@@ -307,26 +312,45 @@ function ModalLancarTrato({ lote, tratosHoje, dietaHoje, usuario, onClose, onSal
   return (
     <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-[100]">
       <div className="bg-white rounded-t-2xl w-full max-w-lg">
+        {/* Header */}
         <div className="flex justify-between items-center px-5 py-4 border-b border-gray-100">
           <div>
             <h3 className="font-bold text-gray-800">
-              {todosFeitos ? '✓ Tratos concluídos' : `Lançar Trato ${tratoNum}/${lote.numTratosDia}`}
+              {todosFeitos ? '✓ Tratos concluídos' : `🌾 Trato ${tratoNum} de ${lote.numTratosDia}`}
             </h3>
-            <p className="text-xs text-gray-400 mt-0.5">{lote.nome}</p>
+            <p className="text-xs text-gray-400 mt-0.5">{lote.nome} · {lote.invernada}</p>
           </div>
-          <button onClick={onClose} className="text-gray-400 text-2xl p-1">✕</button>
+          <button onClick={onClose} className="text-gray-400 text-2xl p-1 leading-none">✕</button>
         </div>
 
         <div className="px-5 py-4">
+          {/* Resumo da dieta */}
           {dietaHoje && (
-            <div className="bg-green-50 rounded-xl p-3 mb-4 flex justify-between items-center">
-              <span className="text-sm text-gray-600">Recomendado hoje</span>
-              <span className="font-bold text-green-700 text-lg">{dietaHoje.quantidadeRecomendada}kg</span>
+            <div className="flex gap-2 mb-4">
+              <div className="flex-1 bg-green-50 rounded-xl p-3 text-center">
+                <p className="text-xs text-gray-400">Total do dia</p>
+                <p className="text-lg font-extrabold text-green-700">{dietaHoje.quantidadeRecomendada}kg</p>
+              </div>
+              {lote.numTratosDia > 1 && (
+                <div className="flex-1 bg-blue-50 rounded-xl p-3 text-center">
+                  <p className="text-xs text-gray-400">Por trato (~)</p>
+                  <p className="text-lg font-extrabold text-blue-700">
+                    {Math.round(dietaHoje.quantidadeRecomendada / lote.numTratosDia)}kg
+                  </p>
+                </div>
+              )}
+              {jaLancado > 0 && (
+                <div className="flex-1 bg-gray-50 rounded-xl p-3 text-center">
+                  <p className="text-xs text-gray-400">Já lançado</p>
+                  <p className="text-lg font-extrabold text-gray-700">{jaLancado}kg</p>
+                </div>
+              )}
             </div>
           )}
 
+          {/* Tratos anteriores */}
           {tratosHoje.length > 0 && (
-            <div className="space-y-1.5 mb-4">
+            <div className="space-y-1 mb-4">
               {tratosHoje.sort((a, b) => a.numeroTrato - b.numeroTrato).map(t => (
                 <div key={t.id} className="flex justify-between bg-gray-50 rounded-xl px-3 py-2 text-sm">
                   <span className="text-gray-500">Trato {t.numeroTrato} — {t.funcionarioNome}</span>
@@ -336,21 +360,15 @@ function ModalLancarTrato({ lote, tratosHoje, dietaHoje, usuario, onClose, onSal
             </div>
           )}
 
-          {!todosFeitos && (
+          {salvo ? (
+            <div className="bg-green-50 border-2 border-green-400 rounded-2xl p-6 text-center">
+              <p className="text-4xl mb-2">✅</p>
+              <p className="font-bold text-green-700">Trato {tratoNum} lançado!</p>
+              <p className="text-xs text-green-600 mt-1">{quantidade}kg registrado</p>
+            </div>
+          ) : !todosFeitos ? (
             <>
-              {/* Sugestão */}
-              {sugestao > 0 && (
-                <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 mb-3 flex justify-between items-center">
-                  <span className="text-sm text-blue-600">Sugestão (restante)</span>
-                  <button
-                    onClick={() => setQuantidade(String(sugestao))}
-                    className="font-bold text-blue-700 bg-blue-100 px-3 py-1 rounded-lg text-sm active:bg-blue-200"
-                  >
-                    {sugestao}kg →
-                  </button>
-                </div>
-              )}
-
+              {/* Input principal */}
               <input
                 type="number"
                 value={quantidade}
@@ -358,48 +376,65 @@ function ModalLancarTrato({ lote, tratosHoje, dietaHoje, usuario, onClose, onSal
                 placeholder="0"
                 min="0"
                 autoFocus
-                className="w-full border-2 border-green-500 rounded-2xl px-4 py-5 text-4xl font-extrabold text-green-700 text-center focus:outline-none focus:ring-4 focus:ring-green-200 bg-green-50 mb-2"
+                className="w-full border-2 border-green-500 rounded-2xl px-4 py-5 text-5xl font-extrabold text-green-700 text-center focus:outline-none focus:ring-4 focus:ring-green-200 bg-green-50 mb-2"
               />
               <p className="text-xs text-center text-gray-400 mb-4">kg neste trato</p>
 
-              {/* Atalhos de percentual */}
+              {/* Atalhos inteligentes */}
               {dietaHoje && (
                 <div className="flex gap-2 mb-4">
-                  {[0.75, 0.85, 1.0].map(f => {
-                    const v = Math.round(dietaHoje.quantidadeRecomendada * f);
-                    return (
+                  {lote.numTratosDia > 1 ? (
+                    [
+                      { label: '-10%', v: Math.round(sugestao * 0.9) },
+                      { label: 'Sugerido', v: sugestao, destaque: true },
+                      { label: '+10%', v: Math.round(sugestao * 1.1) },
+                    ].map(({ label, v, destaque }) => (
                       <button
-                        key={f}
+                        key={label}
                         onClick={() => setQuantidade(String(v))}
-                        className="flex-1 bg-gray-100 text-gray-600 text-xs font-bold py-2.5 rounded-xl active:bg-gray-200"
+                        className={`flex-1 text-xs font-bold py-2.5 rounded-xl active:opacity-70 ${
+                          destaque ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
+                        }`}
                       >
-                        {Math.round(f * 100)}%
+                        {label}
                         <br />
-                        <span className="text-gray-400">{v}kg</span>
+                        <span className={destaque ? 'text-green-600' : 'text-gray-400'}>{v}kg</span>
                       </button>
-                    );
-                  })}
+                    ))
+                  ) : (
+                    [0.8, 0.9, 1.0].map(f => {
+                      const v = Math.round(dietaHoje.quantidadeRecomendada * f);
+                      return (
+                        <button
+                          key={f}
+                          onClick={() => setQuantidade(String(v))}
+                          className="flex-1 bg-gray-100 text-gray-600 text-xs font-bold py-2.5 rounded-xl active:bg-gray-200"
+                        >
+                          {Math.round(f * 100)}%
+                          <br />
+                          <span className="text-gray-400">{v}kg</span>
+                        </button>
+                      );
+                    })
+                  )}
                 </div>
               )}
 
-              {erro && <p className="text-red-500 text-sm text-center mb-3">{erro}</p>}
+              {erro && <p className="text-red-500 text-sm text-center mb-2">{erro}</p>}
             </>
-          )}
+          ) : null}
         </div>
 
         <div className="px-5 pb-6">
-          {todosFeitos ? (
-            <button
-              onClick={onClose}
-              className="w-full bg-gray-100 text-gray-700 font-bold py-4 rounded-2xl"
-            >
+          {salvo || todosFeitos ? (
+            <button onClick={onClose} className="w-full bg-gray-100 text-gray-700 font-bold py-4 rounded-2xl">
               Fechar
             </button>
           ) : (
             <button
               onClick={salvar}
               disabled={salvando || !quantidade}
-              className="w-full bg-green-700 text-white font-bold py-4 rounded-2xl disabled:opacity-60 active:bg-green-800"
+              className="w-full bg-green-700 text-white font-bold py-4 rounded-2xl text-lg disabled:opacity-60 active:bg-green-800"
             >
               {salvando ? 'Salvando...' : '🌾 Confirmar trato'}
             </button>

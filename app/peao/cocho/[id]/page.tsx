@@ -58,14 +58,16 @@ export default function CochoPage() {
   const hoje = format(new Date(), 'yyyy-MM-dd');
 
   useEffect(() => {
+    if (!usuario) return;
     Promise.all([getLote(id), getLeituraCocho(id, hoje)]).then(([l, lc]) => {
       setLote(l);
       if (lc) {
         setLeituraExistente(lc);
         setSelecionado(lc.valor);
       }
-    }).finally(() => setCarregando(false));
-  }, [id, hoje]);
+    }).catch(e => console.error('Erro ao carregar cocho:', e))
+      .finally(() => setCarregando(false));
+  }, [id, hoje, usuario]);
 
   async function salvar() {
     if (!lote || !usuario || selecionado === null) return;

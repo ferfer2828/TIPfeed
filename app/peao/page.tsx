@@ -23,9 +23,20 @@ export default function PeaoHome() {
   const dataFormatada = format(new Date(), "EEEE, d 'de' MMMM", { locale: ptBR });
 
   useEffect(() => {
-    if (!usuario) return;
-    carregar();
+    if (usuario) carregar();
   }, [usuario, hoje]);
+
+  // Recarrega ao voltar para a tela após lançar trato ou cocho
+  useEffect(() => {
+    const onFocus = () => { if (usuario) carregar(); };
+    const onVisibility = () => { if (document.visibilityState === 'visible' && usuario) carregar(); };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [usuario]);
 
   async function carregar() {
     if (!usuario) return;
