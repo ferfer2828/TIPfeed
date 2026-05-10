@@ -11,7 +11,7 @@ const tabs = [
   { href: '/gerente/trato', label: 'Trato', icon: TratoIcon },
   { href: '/gerente/lotes', label: 'Lotes', icon: LotesIcon },
   { href: '/gerente/insumos', label: 'Insumos', icon: InsumosIcon },
-  { href: '/gerente/relatorios', label: 'Relatórios', icon: RelatoriosIcon },
+  { href: '/gerente/equipe', label: 'Equipe', icon: EquipeIcon },
 ];
 
 export default function GerenteLayout({ children }: { children: React.ReactNode }) {

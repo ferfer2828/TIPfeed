@@ -151,16 +151,27 @@ export default function GerentePainel() {
           )}
         </div>
 
-        {/* Ação rápida */}
-        <Link href="/gerente/lotes/novo">
-          <div className="bg-green-700 rounded-2xl p-4 flex items-center gap-3 mb-6 active:bg-green-800">
-            <div className="w-10 h-10 bg-green-600 rounded-xl flex items-center justify-center text-xl">+</div>
-            <div>
-              <p className="text-white font-bold text-sm">Novo lote</p>
-              <p className="text-green-200 text-xs">Cadastrar novo confinamento</p>
+        {/* Ações rápidas */}
+        <div className="flex gap-3 mb-6">
+          <Link href="/gerente/lotes/novo" className="flex-1">
+            <div className="bg-green-700 rounded-2xl p-4 flex items-center gap-3 active:bg-green-800">
+              <div className="w-9 h-9 bg-green-600 rounded-xl flex items-center justify-center text-lg flex-shrink-0">+</div>
+              <div>
+                <p className="text-white font-bold text-sm">Novo lote</p>
+                <p className="text-green-200 text-xs">Cadastrar confinamento</p>
+              </div>
             </div>
-          </div>
-        </Link>
+          </Link>
+          <Link href="/gerente/relatorios" className="flex-1">
+            <div className="bg-gray-700 rounded-2xl p-4 flex items-center gap-3 active:bg-gray-800">
+              <div className="w-9 h-9 bg-gray-600 rounded-xl flex items-center justify-center text-lg flex-shrink-0">📊</div>
+              <div>
+                <p className="text-white font-bold text-sm">Relatórios</p>
+                <p className="text-gray-300 text-xs">Exportar Excel</p>
+              </div>
+            </div>
+          </Link>
+        </div>
       </div>
     </div>
   );
