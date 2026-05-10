@@ -48,44 +48,55 @@ function DietaPage() {
   // Config períodos
   const [periodos, setPeriodos] = useState<{ kg: string }[]>([]);
 
-  // Carrega com retry — setDoc grava no cache local mas getDoc pode ir ao
-  // servidor (que ainda não recebeu o write). Tentamos até 4x com espera.
+  function processarLote(l: Lote, dietasExistentes: import('@/types').DietaDia[]) {
+    setLote(l);
+    const totalDias = differenceInDays(new Date(l.previsaoAbate), new Date(l.dataInicio)) + 1;
+    const numPeriodos = Math.ceil(totalDias / 15);
+    const diasGerados: DiaDieta[] = [];
+    for (let i = 0; i < totalDias; i++) {
+      const data = format(addDays(new Date(l.dataInicio), i), 'yyyy-MM-dd');
+      const existente = dietasExistentes.find(d => d.data === data);
+      diasGerados.push({
+        data, dia: i + 1,
+        kg: existente ? String(existente.quantidadeRecomendada) : '',
+        editado: !!existente,
+      });
+    }
+    setDias(diasGerados);
+    const perGerados = Array.from({ length: numPeriodos }, (_, i) => ({
+      kg: String(calcularPeriodo(l.pesoEntrada, l.quantidadeBois, i + 1)),
+    }));
+    setPeriodos(perGerados);
+    setCarregando(false);
+  }
+
   async function carregarDieta() {
-    const MAX = 4;
-    for (let tentativa = 0; tentativa < MAX; tentativa++) {
-      if (tentativa > 0) {
-        await new Promise(r => setTimeout(r, tentativa * 700)); // 0.7s, 1.4s, 2.1s
+    // 1. Tenta ler do sessionStorage (lote recém-criado, evita race condition)
+    try {
+      const raw = sessionStorage.getItem('loteRecem');
+      if (raw) {
+        const loteCache = JSON.parse(raw) as Lote;
+        if (loteCache.id === id) {
+          sessionStorage.removeItem('loteRecem');
+          processarLote(loteCache, []); // novo lote, sem dietas ainda
+          return;
+        }
       }
+    } catch {}
+
+    // 2. Fallback: busca do Firestore com retry
+    for (let tentativa = 0; tentativa < 4; tentativa++) {
+      if (tentativa > 0) await new Promise(r => setTimeout(r, tentativa * 800));
       try {
         const [l, dietas] = await Promise.all([getLote(id), getDietaDias(id)]);
-        if (!l) continue; // tenta de novo
-
-        setLote(l);
-        const totalDias = differenceInDays(new Date(l.previsaoAbate), new Date(l.dataInicio)) + 1;
-        const numPeriodos = Math.ceil(totalDias / 15);
-        const diasGerados: DiaDieta[] = [];
-        for (let i = 0; i < totalDias; i++) {
-          const data = format(addDays(new Date(l.dataInicio), i), 'yyyy-MM-dd');
-          const existente = dietas.find(d => d.data === data);
-          diasGerados.push({
-            data, dia: i + 1,
-            kg: existente ? String(existente.quantidadeRecomendada) : '',
-            editado: !!existente,
-          });
-        }
-        setDias(diasGerados);
-        const perGerados = Array.from({ length: numPeriodos }, (_, i) => ({
-          kg: String(calcularPeriodo(l.pesoEntrada, l.quantidadeBois, i + 1)),
-        }));
-        setPeriodos(perGerados);
-        setCarregando(false);
-        return; // sucesso
+        if (!l) continue;
+        processarLote(l, dietas);
+        return;
       } catch (e) {
-        console.error(`Tentativa ${tentativa + 1} falhou:`, e);
-        if (tentativa === MAX - 1) setCarregando(false); // esgotou tentativas
+        console.error(`Tentativa ${tentativa + 1}:`, e);
       }
     }
-    setCarregando(false); // garante que sai do loading mesmo sem sucesso
+    setCarregando(false); // esgotou, mostra erro
   }
 
   useEffect(() => {

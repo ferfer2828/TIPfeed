@@ -46,7 +46,7 @@ export default function NovoLotePage() {
 
       const id = `${usuario.fazendaId}_${Date.now()}`;
       const agora = new Date().toISOString();
-      await salvarLote({
+      const novoLote = {
         id,
         fazendaId: usuario.fazendaId,
         nome: form.nome.trim(),
@@ -60,10 +60,11 @@ export default function NovoLotePage() {
         ativo: true,
         criadoEm: agora,
         atualizadoEm: agora,
-      });
-      // Pequena espera para garantir que o Firestore sincronizou o cache
-      await new Promise(r => setTimeout(r, 600));
-      // Ir direto para configuração da dieta
+      };
+      await salvarLote(novoLote);
+      // Salva no sessionStorage para a página de dieta usar sem precisar
+      // buscar do Firestore (evita race condition de cache/sync)
+      sessionStorage.setItem('loteRecem', JSON.stringify(novoLote));
       router.replace(`/gerente/lotes/${id}/dieta?novo=1`);
     } catch {
       setErro('Erro ao salvar o lote. Tente novamente.');
