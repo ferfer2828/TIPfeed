@@ -48,36 +48,49 @@ function DietaPage() {
   // Config períodos
   const [periodos, setPeriodos] = useState<{ kg: string }[]>([]);
 
+  // Carrega com retry — setDoc grava no cache local mas getDoc pode ir ao
+  // servidor (que ainda não recebeu o write). Tentamos até 4x com espera.
+  async function carregarDieta() {
+    const MAX = 4;
+    for (let tentativa = 0; tentativa < MAX; tentativa++) {
+      if (tentativa > 0) {
+        await new Promise(r => setTimeout(r, tentativa * 700)); // 0.7s, 1.4s, 2.1s
+      }
+      try {
+        const [l, dietas] = await Promise.all([getLote(id), getDietaDias(id)]);
+        if (!l) continue; // tenta de novo
+
+        setLote(l);
+        const totalDias = differenceInDays(new Date(l.previsaoAbate), new Date(l.dataInicio)) + 1;
+        const numPeriodos = Math.ceil(totalDias / 15);
+        const diasGerados: DiaDieta[] = [];
+        for (let i = 0; i < totalDias; i++) {
+          const data = format(addDays(new Date(l.dataInicio), i), 'yyyy-MM-dd');
+          const existente = dietas.find(d => d.data === data);
+          diasGerados.push({
+            data, dia: i + 1,
+            kg: existente ? String(existente.quantidadeRecomendada) : '',
+            editado: !!existente,
+          });
+        }
+        setDias(diasGerados);
+        const perGerados = Array.from({ length: numPeriodos }, (_, i) => ({
+          kg: String(calcularPeriodo(l.pesoEntrada, l.quantidadeBois, i + 1)),
+        }));
+        setPeriodos(perGerados);
+        setCarregando(false);
+        return; // sucesso
+      } catch (e) {
+        console.error(`Tentativa ${tentativa + 1} falhou:`, e);
+        if (tentativa === MAX - 1) setCarregando(false); // esgotou tentativas
+      }
+    }
+    setCarregando(false); // garante que sai do loading mesmo sem sucesso
+  }
+
   useEffect(() => {
     if (!usuario) return;
-    Promise.all([getLote(id), getDietaDias(id)]).then(([l, dietas]) => {
-      if (!l) return;
-      setLote(l);
-
-      const totalDias = differenceInDays(new Date(l.previsaoAbate), new Date(l.dataInicio)) + 1;
-      const numPeriodos = Math.ceil(totalDias / 15);
-
-      // Gerar dias
-      const diasGerados: DiaDieta[] = [];
-      for (let i = 0; i < totalDias; i++) {
-        const data = format(addDays(new Date(l.dataInicio), i), 'yyyy-MM-dd');
-        const existente = dietas.find(d => d.data === data);
-        diasGerados.push({
-          data, dia: i + 1,
-          kg: existente ? String(existente.quantidadeRecomendada) : '',
-          editado: !!existente,
-        });
-      }
-      setDias(diasGerados);
-
-      // Gerar períodos com cálculo automático
-      const perGerados = Array.from({ length: numPeriodos }, (_, i) => {
-        const kg = calcularPeriodo(l.pesoEntrada, l.quantidadeBois, i + 1);
-        return { kg: String(kg) };
-      });
-      setPeriodos(perGerados);
-    }).catch(e => console.error('Erro ao carregar dieta:', e))
-      .finally(() => setCarregando(false));
+    carregarDieta();
   }, [id, usuario]);
 
   function aplicarPeriodos() {
@@ -143,14 +156,16 @@ function DietaPage() {
   );
   if (!lote) return (
     <div className="flex flex-col h-full items-center justify-center bg-gray-50 gap-4 px-8 text-center">
-      <p className="text-gray-400">Erro ao carregar o lote.</p>
+      <p className="text-4xl">⚠️</p>
+      <p className="text-gray-600 font-semibold">Não foi possível carregar o lote.</p>
+      <p className="text-gray-400 text-sm">Verifique sua conexão e tente novamente.</p>
       <button
-        onClick={() => { setCarregando(true); if (usuario) Promise.all([getLote(id), getDietaDias(id)]).then(([l, dietas]) => { if (l) { setLote(l); } }).finally(() => setCarregando(false)); }}
-        className="bg-green-700 text-white font-bold px-6 py-3 rounded-xl"
+        onClick={() => { setCarregando(true); carregarDieta(); }}
+        className="bg-green-700 text-white font-bold px-8 py-3 rounded-xl"
       >
         Tentar novamente
       </button>
-      <button onClick={() => router.back()} className="text-gray-400 text-sm underline">
+      <button onClick={() => router.back()} className="text-gray-400 text-sm underline mt-2">
         Voltar
       </button>
     </div>

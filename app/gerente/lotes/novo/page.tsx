@@ -61,6 +61,8 @@ export default function NovoLotePage() {
         criadoEm: agora,
         atualizadoEm: agora,
       });
+      // Pequena espera para garantir que o Firestore sincronizou o cache
+      await new Promise(r => setTimeout(r, 600));
       // Ir direto para configuração da dieta
       router.replace(`/gerente/lotes/${id}/dieta?novo=1`);
     } catch {
