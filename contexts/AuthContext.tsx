@@ -24,11 +24,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
-        const snap = await getDoc(doc(db, 'usuarios', firebaseUser.uid));
-        if (snap.exists()) {
-          setUsuario(snap.data() as Usuario);
-        } else {
-          setUsuario(null);
+        try {
+          // Tenta buscar o perfil no Firestore com timeout de 8 segundos
+          const snap = await Promise.race([
+            getDoc(doc(db, 'usuarios', firebaseUser.uid)),
+            new Promise<null>((_, reject) =>
+              setTimeout(() => reject(new Error('timeout')), 8000)
+            ),
+          ]) as any;
+
+          if (snap && snap.exists()) {
+            setUsuario(snap.data() as Usuario);
+          } else {
+            // Documento não encontrado — aguarda um pouco e tenta de novo
+            await new Promise(r => setTimeout(r, 2000));
+            const snap2 = await getDoc(doc(db, 'usuarios', firebaseUser.uid));
+            if (snap2.exists()) {
+              setUsuario(snap2.data() as Usuario);
+            } else {
+              setUsuario(null);
+            }
+          }
+        } catch {
+          // Se falhar, aguarda e tenta mais uma vez
+          try {
+            await new Promise(r => setTimeout(r, 3000));
+            const snap = await getDoc(doc(db, 'usuarios', firebaseUser.uid));
+            if (snap.exists()) {
+              setUsuario(snap.data() as Usuario);
+            } else {
+              setUsuario(null);
+            }
+          } catch {
+            setUsuario(null);
+          }
         }
       } else {
         setUsuario(null);
