@@ -1,7 +1,6 @@
 import {
   collection, doc, setDoc, getDoc, getDocs,
-  query, where, orderBy, updateDoc, deleteDoc,
-  writeBatch, Timestamp,
+  query, where, updateDoc, writeBatch,
 } from 'firebase/firestore';
 import { db } from './firebase';
 import type { Lote, DietaDia, Trato, LeituraCocho, Insumo, RecebimentoInsumo } from '@/types';
@@ -33,17 +32,16 @@ export async function inativarLote(id: string) {
 
 export async function salvarDietaDias(dietas: DietaDia[]) {
   const batch = writeBatch(db);
-  for (const d of dietas) {
-    batch.set(doc(db, 'dieta_dias', d.id), d);
-  }
+  for (const d of dietas) batch.set(doc(db, 'dieta_dias', d.id), d);
   await batch.commit();
 }
 
 export async function getDietaDias(loteId: string): Promise<DietaDia[]> {
   const snap = await getDocs(
-    query(collection(db, 'dieta_dias'), where('loteId', '==', loteId), orderBy('dia', 'asc'))
+    query(collection(db, 'dieta_dias'), where('loteId', '==', loteId))
   );
-  return snap.docs.map(d => d.data() as DietaDia);
+  return snap.docs.map(d => d.data() as DietaDia)
+    .sort((a, b) => a.dia - b.dia);
 }
 
 export async function getDietaDiaByData(loteId: string, data: string): Promise<DietaDia | null> {
@@ -62,9 +60,10 @@ export async function salvarTrato(trato: Trato) {
 
 export async function getTratosByLote(loteId: string): Promise<Trato[]> {
   const snap = await getDocs(
-    query(collection(db, 'tratos'), where('loteId', '==', loteId), orderBy('data', 'desc'))
+    query(collection(db, 'tratos'), where('loteId', '==', loteId))
   );
-  return snap.docs.map(d => d.data() as Trato);
+  return snap.docs.map(d => d.data() as Trato)
+    .sort((a, b) => b.data.localeCompare(a.data));
 }
 
 export async function getTratosByLoteData(loteId: string, data: string): Promise<Trato[]> {
@@ -97,9 +96,10 @@ export async function getLeituraCocho(loteId: string, data: string): Promise<Lei
 
 export async function getLeiturasCochoByLote(loteId: string): Promise<LeituraCocho[]> {
   const snap = await getDocs(
-    query(collection(db, 'leituras_cocho'), where('loteId', '==', loteId), orderBy('data', 'desc'))
+    query(collection(db, 'leituras_cocho'), where('loteId', '==', loteId))
   );
-  return snap.docs.map(d => d.data() as LeituraCocho);
+  return snap.docs.map(d => d.data() as LeituraCocho)
+    .sort((a, b) => b.data.localeCompare(a.data));
 }
 
 // ─── Insumos ──────────────────────────────────────────────────────────────────
@@ -110,9 +110,10 @@ export async function salvarInsumo(insumo: Insumo) {
 
 export async function getInsumos(fazendaId: string): Promise<Insumo[]> {
   const snap = await getDocs(
-    query(collection(db, 'insumos'), where('fazendaId', '==', fazendaId), orderBy('nome', 'asc'))
+    query(collection(db, 'insumos'), where('fazendaId', '==', fazendaId))
   );
-  return snap.docs.map(d => d.data() as Insumo);
+  return snap.docs.map(d => d.data() as Insumo)
+    .sort((a, b) => a.nome.localeCompare(b.nome));
 }
 
 export async function salvarRecebimento(r: RecebimentoInsumo) {
@@ -121,7 +122,8 @@ export async function salvarRecebimento(r: RecebimentoInsumo) {
 
 export async function getRecebimentos(insumoId: string): Promise<RecebimentoInsumo[]> {
   const snap = await getDocs(
-    query(collection(db, 'recebimentos_insumo'), where('insumoId', '==', insumoId), orderBy('data', 'desc'))
+    query(collection(db, 'recebimentos_insumo'), where('insumoId', '==', insumoId))
   );
-  return snap.docs.map(d => d.data() as RecebimentoInsumo);
+  return snap.docs.map(d => d.data() as RecebimentoInsumo)
+    .sort((a, b) => b.data.localeCompare(a.data));
 }

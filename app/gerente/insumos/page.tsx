@@ -16,9 +16,14 @@ export default function InsumosPage() {
 
   async function carregar() {
     if (!usuario) return;
-    const i = await getInsumos(usuario.fazendaId);
-    setInsumos(i);
-    setCarregando(false);
+    try {
+      const i = await getInsumos(usuario.fazendaId);
+      setInsumos(i);
+    } catch (e) {
+      console.error('Erro ao carregar insumos:', e);
+    } finally {
+      setCarregando(false);
+    }
   }
 
   useEffect(() => { carregar(); }, [usuario]);
