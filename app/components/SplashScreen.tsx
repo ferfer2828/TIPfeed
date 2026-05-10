@@ -5,12 +5,12 @@ export default function SplashScreen() {
   return (
     <div className="fixed inset-0 bg-green-800 flex flex-col items-center justify-center z-50">
       <div className="flex flex-col items-center gap-8">
-        <div className="bg-white rounded-2xl px-8 py-5 shadow-xl">
+        <div className="bg-white rounded-2xl px-10 py-6 shadow-xl">
           <Image
             src="/logo.png"
             alt="TIPfeed"
-            width={220}
-            height={110}
+            width={300}
+            height={150}
             className="object-contain"
             priority
           />

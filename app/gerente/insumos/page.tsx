@@ -153,35 +153,10 @@ function ModalNovoInsumo({ fazendaId, onClose, onSalvo }: {
   }
 
   return (
-    <ModalBase titulo="Novo Insumo" onClose={onClose}>
-      <div className="space-y-3">
-        <Campo label="Nome do insumo" value={nome} onChange={setNome} placeholder="Ex: Milho triturado" />
-        <div>
-          <label className="block text-xs font-semibold text-gray-500 mb-1">Unidade</label>
-          <div className="flex gap-2">
-            {['kg', 'ton', 'sc', 'L', 'un'].map(u => (
-              <button
-                key={u}
-                onClick={() => setUnidade(u)}
-                className={`flex-1 py-2.5 rounded-xl text-sm font-bold ${unidade === u ? 'bg-green-700 text-white' : 'bg-gray-100 text-gray-600'}`}
-              >
-                {u}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="flex items-center justify-between bg-gray-50 rounded-xl p-3">
-          <span className="text-sm font-semibold text-gray-700">Alerta ativo</span>
-          <button
-            onClick={() => setAlertaAtivo(!alertaAtivo)}
-            className={`w-12 h-6 rounded-full transition-colors ${alertaAtivo ? 'bg-green-600' : 'bg-gray-300'} relative`}
-          >
-            <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${alertaAtivo ? 'translate-x-6' : 'translate-x-0.5'}`} />
-          </button>
-        </div>
-        {alertaAtivo && (
-          <Campo label="Mensagem do alerta" value={mensagem} onChange={setMensagem} placeholder="Ex: Estoque baixo" />
-        )}
+    <ModalBase
+      titulo="Novo Insumo"
+      onClose={onClose}
+      rodape={
         <button
           onClick={salvar}
           disabled={salvando || !nome.trim()}
@@ -189,7 +164,35 @@ function ModalNovoInsumo({ fazendaId, onClose, onSalvo }: {
         >
           {salvando ? 'Salvando...' : 'Salvar'}
         </button>
+      }
+    >
+      <Campo label="Nome do insumo" value={nome} onChange={setNome} placeholder="Ex: Milho triturado" />
+      <div>
+        <label className="block text-xs font-semibold text-gray-500 mb-1">Unidade</label>
+        <div className="flex gap-2">
+          {['kg', 'ton', 'sc', 'L', 'un'].map(u => (
+            <button
+              key={u}
+              onClick={() => setUnidade(u)}
+              className={`flex-1 py-2.5 rounded-xl text-sm font-bold ${unidade === u ? 'bg-green-700 text-white' : 'bg-gray-100 text-gray-600'}`}
+            >
+              {u}
+            </button>
+          ))}
+        </div>
       </div>
+      <div className="flex items-center justify-between bg-gray-50 rounded-xl p-3">
+        <span className="text-sm font-semibold text-gray-700">Alerta ativo</span>
+        <button
+          onClick={() => setAlertaAtivo(!alertaAtivo)}
+          className={`w-12 h-6 rounded-full transition-colors ${alertaAtivo ? 'bg-green-600' : 'bg-gray-300'} relative`}
+        >
+          <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${alertaAtivo ? 'translate-x-6' : 'translate-x-0.5'}`} />
+        </button>
+      </div>
+      {alertaAtivo && (
+        <Campo label="Mensagem do alerta" value={mensagem} onChange={setMensagem} placeholder="Ex: Estoque baixo" />
+      )}
     </ModalBase>
   );
 }
@@ -276,17 +279,27 @@ function ModalHistorico({ insumo, onClose }: { insumo: Insumo; onClose: () => vo
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function ModalBase({ titulo, onClose, children }: { titulo: string; onClose: () => void; children: React.ReactNode }) {
+function ModalBase({ titulo, onClose, children, rodape }: {
+  titulo: string; onClose: () => void; children: React.ReactNode; rodape?: React.ReactNode;
+}) {
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50">
-      <div className="bg-white rounded-t-2xl w-full max-w-lg flex flex-col" style={{ maxHeight: '90vh' }}>
-        <div className="flex justify-between items-center p-5 border-b border-gray-100 flex-shrink-0">
+    <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-[100]">
+      <div className="bg-white rounded-t-2xl w-full max-w-lg flex flex-col" style={{ maxHeight: '80vh' }}>
+        {/* Cabeçalho fixo */}
+        <div className="flex justify-between items-center px-5 py-4 border-b border-gray-100 flex-shrink-0">
           <h3 className="font-bold text-gray-800">{titulo}</h3>
-          <button onClick={onClose} className="text-gray-400 text-xl leading-none p-1">✕</button>
+          <button onClick={onClose} className="text-gray-400 text-2xl leading-none p-1">✕</button>
         </div>
-        <div className="overflow-y-auto flex-1 p-5 pb-8">
+        {/* Conteúdo rolável */}
+        <div className="overflow-y-auto flex-1 px-5 py-4 space-y-3">
           {children}
         </div>
+        {/* Rodapé fixo com botão */}
+        {rodape && (
+          <div className="flex-shrink-0 px-5 py-4 border-t border-gray-100 bg-white">
+            {rodape}
+          </div>
+        )}
       </div>
     </div>
   );
