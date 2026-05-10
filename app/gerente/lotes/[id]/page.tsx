@@ -26,11 +26,16 @@ export default function LoteDetailPage() {
   const hoje = format(new Date(), 'yyyy-MM-dd');
 
   async function carregar() {
-    const [l, t, lc, d] = await Promise.all([
-      getLote(id), getTratosByLote(id), getLeiturasCochoByLote(id), getDietaDias(id),
-    ]);
-    setLote(l); setTratos(t); setLeituras(lc); setDietas(d);
-    setCarregando(false);
+    try {
+      const [l, t, lc, d] = await Promise.all([
+        getLote(id), getTratosByLote(id), getLeiturasCochoByLote(id), getDietaDias(id),
+      ]);
+      setLote(l); setTratos(t); setLeituras(lc); setDietas(d);
+    } catch (e) {
+      console.error('Erro ao carregar lote:', e);
+    } finally {
+      setCarregando(false);
+    }
   }
 
   useEffect(() => { carregar(); }, [id]);

@@ -8,9 +8,9 @@ import SplashScreen from '../components/SplashScreen';
 
 const tabs = [
   { href: '/gerente', label: 'Painel', icon: PainelIcon },
+  { href: '/gerente/trato', label: 'Trato', icon: TratoIcon },
   { href: '/gerente/lotes', label: 'Lotes', icon: LotesIcon },
   { href: '/gerente/insumos', label: 'Insumos', icon: InsumosIcon },
-  { href: '/gerente/equipe', label: 'Equipe', icon: EquipeIcon },
   { href: '/gerente/relatorios', label: 'Relatórios', icon: RelatoriosIcon },
 ];
 
@@ -66,6 +66,19 @@ function PainelIcon({ active }: { active: boolean }) {
       <rect x="14" y="3" width="7" height="7" rx="1"/>
       <rect x="3" y="14" width="7" height="7" rx="1"/>
       <rect x="14" y="14" width="7" height="7" rx="1"/>
+    </svg>
+  );
+}
+function TratoIcon({ active }: { active: boolean }) {
+  const c = active ? '#15803d' : '#9ca3af';
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 22V12"/>
+      <path d="M12 12C12 12 8 10 8 6a4 4 0 0 1 8 0c0 4-4 6-4 6z" fill={active ? '#dcfce7' : 'none'}/>
+      <path d="M12 12c0 0-2.5-2-4-5"/>
+      <path d="M12 12c0 0 2.5-2 4-5"/>
+      <path d="M9 16c0 0-2-1-3-4"/>
+      <path d="M15 16c0 0 2-1 3-4"/>
     </svg>
   );
 }

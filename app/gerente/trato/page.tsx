@@ -1,0 +1,411 @@
+'use client';
+import { useEffect, useState } from 'react';
+import { useAuth } from '@/contexts/AuthContext';
+import {
+  getLotes, getDietaDiaByData, getTratosByFazendaData,
+  salvarTrato, salvarLote,
+} from '@/lib/firestore';
+import { format } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
+import type { Lote, Trato, DietaDia } from '@/types';
+
+interface LoteInfo {
+  lote: Lote;
+  dietaHoje: DietaDia | null;
+  tratosHoje: Trato[];
+}
+
+export default function TratoGerentePage() {
+  const { usuario } = useAuth();
+  const [lotesInfo, setLotesInfo] = useState<LoteInfo[]>([]);
+  const [carregando, setCarregando] = useState(true);
+  const [modalLote, setModalLote] = useState<LoteInfo | null>(null);
+  const [modoOrdem, setModoOrdem] = useState(false);
+
+  const hoje = format(new Date(), 'yyyy-MM-dd');
+  const dataFormatada = format(new Date(), "EEEE, d 'de' MMMM", { locale: ptBR });
+
+  async function carregar() {
+    if (!usuario) return;
+    setCarregando(true);
+    try {
+      const lotes = await getLotes(usuario.fazendaId);
+      const todosTratos = await getTratosByFazendaData(usuario.fazendaId, hoje);
+      const infos = await Promise.all(
+        lotes.map(async lote => {
+          const dieta = await getDietaDiaByData(lote.id, hoje);
+          const tratos = todosTratos.filter(t => t.loteId === lote.id);
+          return { lote, dietaHoje: dieta, tratosHoje: tratos };
+        })
+      );
+      setLotesInfo(infos);
+    } catch (e) {
+      console.error('Erro ao carregar tratos:', e);
+    } finally {
+      setCarregando(false);
+    }
+  }
+
+  useEffect(() => { carregar(); }, [usuario]);
+
+  // Recarrega ao voltar para a tela
+  useEffect(() => {
+    const onFocus = () => carregar();
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') carregar();
+    });
+    return () => window.removeEventListener('focus', onFocus);
+  }, [usuario]);
+
+  async function moverOrdem(index: number, direcao: 'up' | 'down') {
+    const lista = [...lotesInfo];
+    const destIndex = direcao === 'up' ? index - 1 : index + 1;
+    if (destIndex < 0 || destIndex >= lista.length) return;
+
+    const ordemA = lista[index].lote.ordemDescarregamento;
+    const ordemB = lista[destIndex].lote.ordemDescarregamento;
+
+    lista[index] = { ...lista[index], lote: { ...lista[index].lote, ordemDescarregamento: ordemB } };
+    lista[destIndex] = { ...lista[destIndex], lote: { ...lista[destIndex].lote, ordemDescarregamento: ordemA } };
+
+    await Promise.all([salvarLote(lista[index].lote), salvarLote(lista[destIndex].lote)]);
+    lista.sort((a, b) => a.lote.ordemDescarregamento - b.lote.ordemDescarregamento);
+    setLotesInfo([...lista]);
+  }
+
+  const totalConcluidos = lotesInfo.filter(i => i.tratosHoje.length >= i.lote.numTratosDia).length;
+  const totalPendentes = lotesInfo.length - totalConcluidos;
+
+  return (
+    <div className="min-h-full bg-gray-50">
+      {/* Header */}
+      <div className="bg-green-700 px-4 pt-10 pb-5">
+        <div className="flex items-start justify-between">
+          <div>
+            <p className="text-green-200 text-sm capitalize">{dataFormatada}</p>
+            <h1 className="text-white text-2xl font-extrabold mt-0.5">🌾 Trato do dia</h1>
+          </div>
+          <button
+            onClick={() => setModoOrdem(!modoOrdem)}
+            className={`text-xs font-bold px-3 py-2 rounded-xl mt-1 border transition
+              ${modoOrdem ? 'bg-white text-green-700 border-white' : 'border-green-500 text-green-200'}`}
+          >
+            {modoOrdem ? '✓ Feito' : '⇅ Ordem'}
+          </button>
+        </div>
+
+        {/* Resumo */}
+        <div className="flex gap-3 mt-4">
+          <div className="flex-1 bg-green-600 rounded-xl p-3 text-center">
+            <p className="text-2xl font-extrabold text-white">{totalConcluidos}</p>
+            <p className="text-xs text-green-200">Concluídos</p>
+          </div>
+          <div className={`flex-1 rounded-xl p-3 text-center ${totalPendentes > 0 ? 'bg-orange-500' : 'bg-green-600'}`}>
+            <p className="text-2xl font-extrabold text-white">{totalPendentes}</p>
+            <p className="text-xs text-white/80">Pendentes</p>
+          </div>
+          <div className="flex-1 bg-green-600 rounded-xl p-3 text-center">
+            <p className="text-2xl font-extrabold text-white">{lotesInfo.length}</p>
+            <p className="text-xs text-green-200">Total</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Lista de lotes */}
+      <div className="px-4 py-4">
+        {modoOrdem && (
+          <div className="bg-blue-50 border border-blue-200 rounded-xl px-3 py-2 mb-4">
+            <p className="text-xs text-blue-600 font-semibold">
+              ⇅ Modo de ordenação — use as setas para reordenar os lotes. A ordem é salva automaticamente.
+            </p>
+          </div>
+        )}
+
+        {carregando ? (
+          <p className="text-center text-gray-400 py-10">Carregando...</p>
+        ) : lotesInfo.length === 0 ? (
+          <div className="bg-white rounded-2xl p-8 text-center">
+            <p className="text-4xl mb-3">🐄</p>
+            <p className="text-gray-500 font-semibold">Nenhum lote ativo</p>
+            <p className="text-gray-400 text-sm mt-1">Cadastre um lote para começar.</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {lotesInfo.map(({ lote, dietaHoje, tratosHoje }, i) => {
+              const concluido = tratosHoje.length >= lote.numTratosDia;
+              const totalKgLancado = tratosHoje.reduce((s, t) => s + t.quantidadeEfetiva, 0);
+              const progresso = Math.min(100, (tratosHoje.length / lote.numTratosDia) * 100);
+
+              return (
+                <div
+                  key={lote.id}
+                  className={`bg-white rounded-2xl shadow-sm overflow-hidden border-l-4
+                    ${concluido ? 'border-green-500' : 'border-orange-400'}`}
+                >
+                  <div className="p-4">
+                    <div className="flex items-start gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-0.5">
+                          <span className="bg-gray-100 text-gray-600 text-xs font-bold px-2 py-0.5 rounded-full flex-shrink-0">
+                            #{i + 1}
+                          </span>
+                          <p className="font-bold text-gray-800 truncate">{lote.nome}</p>
+                        </div>
+                        <p className="text-xs text-gray-400">{lote.invernada} · {lote.quantidadeBois} bois</p>
+                      </div>
+
+                      {modoOrdem ? (
+                        /* Botões de reordenação */
+                        <div className="flex flex-col gap-1 flex-shrink-0">
+                          <button
+                            onClick={() => moverOrdem(i, 'up')}
+                            disabled={i === 0}
+                            className="w-9 h-9 flex items-center justify-center bg-gray-100 rounded-xl disabled:opacity-30 active:bg-gray-200"
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                              <path d="M18 15l-6-6-6 6"/>
+                            </svg>
+                          </button>
+                          <button
+                            onClick={() => moverOrdem(i, 'down')}
+                            disabled={i === lotesInfo.length - 1}
+                            className="w-9 h-9 flex items-center justify-center bg-gray-100 rounded-xl disabled:opacity-30 active:bg-gray-200"
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                              <path d="M6 9l6 6 6-6"/>
+                            </svg>
+                          </button>
+                        </div>
+                      ) : (
+                        /* Info da dieta */
+                        <div className="text-right flex-shrink-0">
+                          {dietaHoje ? (
+                            <>
+                              <p className="text-lg font-extrabold text-green-700">{dietaHoje.quantidadeRecomendada}kg</p>
+                              <p className="text-xs text-gray-400">recomendado</p>
+                            </>
+                          ) : (
+                            <span className="text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded-lg">Sem dieta</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {!modoOrdem && (
+                      <>
+                        {/* Barra de progresso */}
+                        <div className="mt-3 mb-3">
+                          <div className="flex justify-between text-xs text-gray-500 mb-1">
+                            <span>Tratos: {tratosHoje.length}/{lote.numTratosDia}</span>
+                            {totalKgLancado > 0 && (
+                              <span className="font-semibold text-green-700">{totalKgLancado}kg lançados</span>
+                            )}
+                          </div>
+                          <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all ${concluido ? 'bg-green-500' : 'bg-orange-400'}`}
+                              style={{ width: `${progresso}%` }}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Tratos registrados hoje */}
+                        {tratosHoje.length > 0 && (
+                          <div className="space-y-1 mb-3">
+                            {tratosHoje.sort((a, b) => a.numeroTrato - b.numeroTrato).map(t => (
+                              <div key={t.id} className="flex justify-between text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-1.5">
+                                <span>Trato {t.numeroTrato} — {t.funcionarioNome}</span>
+                                <span className="font-bold text-gray-700">{t.quantidadeEfetiva}kg</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Botão de ação */}
+                        <button
+                          onClick={() => setModalLote({ lote, dietaHoje, tratosHoje })}
+                          className={`w-full font-bold py-3 rounded-xl text-sm active:opacity-80 transition
+                            ${concluido
+                              ? 'bg-green-50 text-green-700 border border-green-200'
+                              : 'bg-green-700 text-white'}`}
+                        >
+                          {concluido ? '✓ Ver / adicionar trato' : '🌾 Lançar trato'}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Modal lançar trato */}
+      {modalLote && usuario && (
+        <ModalLancarTrato
+          lote={modalLote.lote}
+          tratosHoje={modalLote.tratosHoje}
+          dietaHoje={modalLote.dietaHoje}
+          usuario={usuario}
+          onClose={() => setModalLote(null)}
+          onSalvo={() => { setModalLote(null); carregar(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── Modal Lançar Trato ───────────────────────────────────────────────────────
+
+function ModalLancarTrato({ lote, tratosHoje, dietaHoje, usuario, onClose, onSalvo }: {
+  lote: Lote;
+  tratosHoje: Trato[];
+  dietaHoje: DietaDia | null;
+  usuario: any;
+  onClose: () => void;
+  onSalvo: () => void;
+}) {
+  const jaLancado = tratosHoje.reduce((s, t) => s + t.quantidadeEfetiva, 0);
+  const tratoNum = tratosHoje.length + 1;
+  const todosFeitos = tratosHoje.length >= lote.numTratosDia;
+
+  const sugestao = dietaHoje
+    ? Math.max(0, dietaHoje.quantidadeRecomendada - jaLancado)
+    : 0;
+  const [quantidade, setQuantidade] = useState(sugestao > 0 ? String(sugestao) : '');
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState('');
+
+  async function salvar() {
+    const qtd = Number(quantidade);
+    if (!qtd || qtd <= 0) { setErro('Informe a quantidade.'); return; }
+    if (todosFeitos) { setErro('Todos os tratos do dia já foram lançados.'); return; }
+    setSalvando(true);
+    try {
+      const hoje = format(new Date(), 'yyyy-MM-dd');
+      await salvarTrato({
+        id: `${lote.id}_${hoje}_${tratoNum}_${Date.now()}`,
+        loteId: lote.id,
+        fazendaId: lote.fazendaId,
+        data: hoje,
+        numeroTrato: tratoNum,
+        quantidadeEfetiva: qtd,
+        funcionarioId: usuario.uid,
+        funcionarioNome: usuario.nome,
+        criadoEm: new Date().toISOString(),
+      });
+      onSalvo();
+    } catch {
+      setErro('Erro ao salvar. Tente novamente.');
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-[100]">
+      <div className="bg-white rounded-t-2xl w-full max-w-lg">
+        <div className="flex justify-between items-center px-5 py-4 border-b border-gray-100">
+          <div>
+            <h3 className="font-bold text-gray-800">
+              {todosFeitos ? '✓ Tratos concluídos' : `Lançar Trato ${tratoNum}/${lote.numTratosDia}`}
+            </h3>
+            <p className="text-xs text-gray-400 mt-0.5">{lote.nome}</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 text-2xl p-1">✕</button>
+        </div>
+
+        <div className="px-5 py-4">
+          {dietaHoje && (
+            <div className="bg-green-50 rounded-xl p-3 mb-4 flex justify-between items-center">
+              <span className="text-sm text-gray-600">Recomendado hoje</span>
+              <span className="font-bold text-green-700 text-lg">{dietaHoje.quantidadeRecomendada}kg</span>
+            </div>
+          )}
+
+          {tratosHoje.length > 0 && (
+            <div className="space-y-1.5 mb-4">
+              {tratosHoje.sort((a, b) => a.numeroTrato - b.numeroTrato).map(t => (
+                <div key={t.id} className="flex justify-between bg-gray-50 rounded-xl px-3 py-2 text-sm">
+                  <span className="text-gray-500">Trato {t.numeroTrato} — {t.funcionarioNome}</span>
+                  <span className="font-bold text-gray-700">{t.quantidadeEfetiva}kg</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {!todosFeitos && (
+            <>
+              {/* Sugestão */}
+              {sugestao > 0 && (
+                <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 mb-3 flex justify-between items-center">
+                  <span className="text-sm text-blue-600">Sugestão (restante)</span>
+                  <button
+                    onClick={() => setQuantidade(String(sugestao))}
+                    className="font-bold text-blue-700 bg-blue-100 px-3 py-1 rounded-lg text-sm active:bg-blue-200"
+                  >
+                    {sugestao}kg →
+                  </button>
+                </div>
+              )}
+
+              <input
+                type="number"
+                value={quantidade}
+                onChange={e => setQuantidade(e.target.value)}
+                placeholder="0"
+                min="0"
+                autoFocus
+                className="w-full border-2 border-green-500 rounded-2xl px-4 py-5 text-4xl font-extrabold text-green-700 text-center focus:outline-none focus:ring-4 focus:ring-green-200 bg-green-50 mb-2"
+              />
+              <p className="text-xs text-center text-gray-400 mb-4">kg neste trato</p>
+
+              {/* Atalhos de percentual */}
+              {dietaHoje && (
+                <div className="flex gap-2 mb-4">
+                  {[0.75, 0.85, 1.0].map(f => {
+                    const v = Math.round(dietaHoje.quantidadeRecomendada * f);
+                    return (
+                      <button
+                        key={f}
+                        onClick={() => setQuantidade(String(v))}
+                        className="flex-1 bg-gray-100 text-gray-600 text-xs font-bold py-2.5 rounded-xl active:bg-gray-200"
+                      >
+                        {Math.round(f * 100)}%
+                        <br />
+                        <span className="text-gray-400">{v}kg</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {erro && <p className="text-red-500 text-sm text-center mb-3">{erro}</p>}
+            </>
+          )}
+        </div>
+
+        <div className="px-5 pb-6">
+          {todosFeitos ? (
+            <button
+              onClick={onClose}
+              className="w-full bg-gray-100 text-gray-700 font-bold py-4 rounded-2xl"
+            >
+              Fechar
+            </button>
+          ) : (
+            <button
+              onClick={salvar}
+              disabled={salvando || !quantidade}
+              className="w-full bg-green-700 text-white font-bold py-4 rounded-2xl disabled:opacity-60 active:bg-green-800"
+            >
+              {salvando ? 'Salvando...' : '🌾 Confirmar trato'}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
