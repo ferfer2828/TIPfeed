@@ -6,7 +6,7 @@ import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import type { Insumo, RecebimentoInsumo } from '@/types';
 
-type Modal = null | 'novoInsumo' | { tipo: 'recebimento'; insumo: Insumo } | { tipo: 'historico'; insumo: Insumo };
+type Modal = null | 'novoInsumo' | { tipo: 'recebimento'; insumo: Insumo } | { tipo: 'historico'; insumo: Insumo } | { tipo: 'alerta'; insumo: Insumo };
 
 export default function InsumosPage() {
   const { usuario } = useAuth();
@@ -28,15 +28,6 @@ export default function InsumosPage() {
 
   useEffect(() => { carregar(); }, [usuario]);
 
-  async function toggleAlerta(insumo: Insumo) {
-    const atualizado: Insumo = {
-      ...insumo,
-      alertaAtivo: !insumo.alertaAtivo,
-      atualizadoEm: new Date().toISOString(),
-    };
-    await salvarInsumo(atualizado);
-    carregar();
-  }
 
   return (
     <div className="min-h-full bg-gray-50">
@@ -67,13 +58,12 @@ export default function InsumosPage() {
                     )}
                   </div>
                   <button
-                    onClick={() => toggleAlerta(insumo)}
-                    className={`ml-3 px-3 py-1.5 rounded-xl text-xs font-bold transition
-                      ${insumo.alertaAtivo
-                        ? 'bg-red-100 text-red-700'
-                        : 'bg-gray-100 text-gray-500'}`}
+                    onClick={() => setModal({ tipo: 'alerta', insumo })}
+                    className={`ml-3 flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl text-xs font-bold transition active:opacity-70
+                      ${insumo.alertaAtivo ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-500'}`}
                   >
-                    {insumo.alertaAtivo ? '🔔 ON' : '🔕 OFF'}
+                    <span className="text-lg">{insumo.alertaAtivo ? '🔔' : '🔕'}</span>
+                    <span>{insumo.alertaAtivo ? 'Alerta ON' : 'Sem alerta'}</span>
                   </button>
                 </div>
                 <div className="flex gap-2 mt-3">
@@ -124,6 +114,14 @@ export default function InsumosPage() {
         <ModalHistorico
           insumo={modal.insumo}
           onClose={() => setModal(null)}
+        />
+      )}
+
+      {modal !== null && typeof modal === 'object' && modal.tipo === 'alerta' && (
+        <ModalAlerta
+          insumo={modal.insumo}
+          onClose={() => setModal(null)}
+          onSalvo={() => { setModal(null); carregar(); }}
         />
       )}
     </div>
@@ -278,6 +276,73 @@ function ModalHistorico({ insumo, onClose }: { insumo: Insumo; onClose: () => vo
           ))}
         </div>
       )}
+    </ModalBase>
+  );
+}
+
+// ─── Modal Alerta ─────────────────────────────────────────────────────────────
+
+function ModalAlerta({ insumo, onClose, onSalvo }: {
+  insumo: Insumo; onClose: () => void; onSalvo: () => void;
+}) {
+  const [alertaAtivo, setAlertaAtivo] = useState(insumo.alertaAtivo);
+  const [mensagem, setMensagem] = useState(insumo.mensagemAlerta || '');
+  const [salvando, setSalvando] = useState(false);
+
+  async function salvar() {
+    setSalvando(true);
+    try {
+      await salvarInsumo({
+        ...insumo,
+        alertaAtivo,
+        mensagemAlerta: mensagem.trim(),
+        atualizadoEm: new Date().toISOString(),
+      });
+      onSalvo();
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  return (
+    <ModalBase
+      titulo="Alerta de estoque"
+      onClose={onClose}
+      rodape={
+        <button
+          onClick={salvar}
+          disabled={salvando}
+          className="w-full bg-green-700 text-white font-bold py-3.5 rounded-xl disabled:opacity-50 active:bg-green-800"
+        >
+          {salvando ? 'Salvando...' : 'Salvar'}
+        </button>
+      }
+    >
+      <p className="text-xs text-gray-400 -mt-1">{insumo.nome}</p>
+
+      <div className="flex items-center justify-between bg-gray-50 rounded-xl p-4">
+        <div>
+          <p className="text-sm font-bold text-gray-700">Alerta ativo</p>
+          <p className="text-xs text-gray-400 mt-0.5">Aparece no painel como urgência</p>
+        </div>
+        <button
+          onClick={() => setAlertaAtivo(!alertaAtivo)}
+          className={`w-12 h-6 rounded-full transition-colors flex-shrink-0 ${alertaAtivo ? 'bg-red-500' : 'bg-gray-300'} relative`}
+        >
+          <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${alertaAtivo ? 'translate-x-6' : 'translate-x-0.5'}`} />
+        </button>
+      </div>
+
+      <div>
+        <label className="block text-xs font-semibold text-gray-500 mb-1">Mensagem do alerta</label>
+        <textarea
+          value={mensagem}
+          onChange={e => setMensagem(e.target.value)}
+          placeholder="Ex: Estoque de milho baixo, providenciar pedido"
+          rows={3}
+          className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 resize-none"
+        />
+      </div>
     </ModalBase>
   );
 }

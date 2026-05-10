@@ -85,7 +85,9 @@ service cloud.firestore {
     match /insumos/{insumoId} {
       allow read: if autenticado()
         && pertenceAFazenda(resource.data.fazendaId);
-      allow write: if eGerenteDa(request.resource.data.fazendaId);
+      allow create: if eGerenteDa(request.resource.data.fazendaId);
+      // Peão pode atualizar (ativar alerta de estoque baixo); gerente pode tudo
+      allow update: if pertenceAFazenda(request.resource.data.fazendaId);
     }
 
     // ── Recebimentos de Insumo ────────────────────────────────────────────────

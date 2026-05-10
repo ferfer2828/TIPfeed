@@ -7,6 +7,7 @@ import SplashScreen from '../components/SplashScreen';
 
 const tabs = [
   { href: '/peao', label: 'Início', icon: HomeIcon },
+  { href: '/peao/insumos', label: 'Insumos', icon: InsumosIcon },
   { href: '/peao/historico', label: 'Histórico', icon: HistoricoIcon },
 ];
 
@@ -60,6 +61,18 @@ function HomeIcon({ active }: { active: boolean }) {
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? '#15803d' : '#9ca3af'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
       <polyline points="9 22 9 12 15 12 15 22"/>
+    </svg>
+  );
+}
+
+function InsumosIcon({ active }: { active: boolean }) {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? '#15803d' : '#9ca3af'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M18 8h1a4 4 0 0 1 0 8h-1"/>
+      <path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/>
+      <line x1="6" y1="1" x2="6" y2="4"/>
+      <line x1="10" y1="1" x2="10" y2="4"/>
+      <line x1="14" y1="1" x2="14" y2="4"/>
     </svg>
   );
 }
