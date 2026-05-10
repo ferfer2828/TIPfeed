@@ -5,18 +5,28 @@ import { getLote, getDietaDias, salvarDietaDias } from '@/lib/firestore';
 import { format, addDays, differenceInDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import type { Lote, DietaDia } from '@/types';
-import { useAuth } from '@/contexts/AuthContext';
 
 export default function DietaPageWrapper() {
   return (
-    <Suspense fallback={
-      <div className="flex h-full items-center justify-center">
-        <p className="text-gray-400">Carregando...</p>
-      </div>
-    }>
+    <Suspense fallback={<div className="flex h-full items-center justify-center"><p className="text-gray-400">Carregando...</p></div>}>
       <DietaPage />
     </Suspense>
   );
+}
+
+interface DiaDieta {
+  data: string;
+  dia: number;
+  kg: string;
+  editado: boolean;
+}
+
+function calcularPeriodo(pesoEntrada: number, quantidadeBois: number, periodo: number): number {
+  // Base: 1% do peso vivo × (7/6) × qtd bois
+  const base = pesoEntrada * 0.01 * (7 / 6) * quantidadeBois;
+  // Cada período adicional adiciona 0,5kg por boi
+  const acrescimo = (periodo - 1) * 0.5 * quantidadeBois;
+  return Math.round((base + acrescimo) * 10) / 10;
 }
 
 function DietaPage() {
@@ -24,15 +34,17 @@ function DietaPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const isNovo = searchParams.get('novo') === '1';
-  const { usuario } = useAuth();
 
   const [lote, setLote] = useState<Lote | null>(null);
-  const [dias, setDias] = useState<{ data: string; dia: number; kg: string }[]>([]);
+  const [dias, setDias] = useState<DiaDieta[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [salvando, setSalvando] = useState(false);
   const [salvo, setSalvo] = useState(false);
-  const [aplicarTodos, setAplicarTodos] = useState('');
   const [erro, setErro] = useState('');
+  const [abaAtiva, setAbaAtiva] = useState<'periodos' | 'dias'>('periodos');
+
+  // Config períodos
+  const [periodos, setPeriodos] = useState<{ kg: string }[]>([]);
 
   useEffect(() => {
     Promise.all([getLote(id), getDietaDias(id)]).then(([l, dietas]) => {
@@ -40,38 +52,61 @@ function DietaPage() {
       setLote(l);
 
       const totalDias = differenceInDays(new Date(l.previsaoAbate), new Date(l.dataInicio)) + 1;
-      const diasGerados: { data: string; dia: number; kg: string }[] = [];
+      const numPeriodos = Math.ceil(totalDias / 15);
 
+      // Gerar dias
+      const diasGerados: DiaDieta[] = [];
       for (let i = 0; i < totalDias; i++) {
         const data = format(addDays(new Date(l.dataInicio), i), 'yyyy-MM-dd');
-        const dietaExistente = dietas.find(d => d.data === data);
+        const existente = dietas.find(d => d.data === data);
         diasGerados.push({
-          data,
-          dia: i + 1,
-          kg: dietaExistente ? String(dietaExistente.quantidadeRecomendada) : '',
+          data, dia: i + 1,
+          kg: existente ? String(existente.quantidadeRecomendada) : '',
+          editado: !!existente,
         });
       }
       setDias(diasGerados);
+
+      // Gerar períodos com cálculo automático
+      const perGerados = Array.from({ length: numPeriodos }, (_, i) => {
+        const kg = calcularPeriodo(l.pesoEntrada, l.quantidadeBois, i + 1);
+        return { kg: String(kg) };
+      });
+      setPeriodos(perGerados);
     }).finally(() => setCarregando(false));
   }, [id]);
 
-  function setKg(index: number, valor: string) {
-    setDias(prev => prev.map((d, i) => i === index ? { ...d, kg: valor } : d));
+  function aplicarPeriodos() {
+    if (!lote) return;
+    setDias(prev => prev.map(d => {
+      const periodo = Math.ceil(d.dia / 15);
+      const p = periodos[periodo - 1];
+      return { ...d, kg: p?.kg ?? d.kg, editado: false };
+    }));
   }
 
-  function aplicarATodos() {
-    const valor = Number(aplicarTodos);
-    if (!valor || valor <= 0) return;
-    setDias(prev => prev.map(d => ({ ...d, kg: aplicarTodos })));
-    setAplicarTodos('');
+  function setKgDia(index: number, valor: string) {
+    setDias(prev => prev.map((d, i) => i === index ? { ...d, kg: valor, editado: true } : d));
+  }
+
+  function setPeriodoKg(index: number, valor: string) {
+    setPeriodos(prev => prev.map((p, i) => i === index ? { kg: valor } : p));
+  }
+
+  function recalcular() {
+    if (!lote) return;
+    const novos = periodos.map((_, i) => ({
+      kg: String(calcularPeriodo(lote.pesoEntrada, lote.quantidadeBois, i + 1)),
+    }));
+    setPeriodos(novos);
   }
 
   async function salvar() {
-    if (!lote || !usuario) return;
+    if (!lote) return;
     setErro('');
     const incompletos = dias.filter(d => !d.kg || Number(d.kg) <= 0);
     if (incompletos.length > 0) {
-      setErro(`Preencha todos os dias (${incompletos.length} dias sem valor).`);
+      setErro(`${incompletos.length} dia(s) sem valor. Aplique os períodos ou preencha manualmente.`);
       return;
     }
     setSalvando(true);
@@ -97,109 +132,166 @@ function DietaPage() {
     }
   }
 
-  if (carregando) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <p className="text-gray-400">Carregando...</p>
-      </div>
-    );
-  }
+  if (carregando) return <div className="flex h-full items-center justify-center"><p className="text-gray-400">Carregando...</p></div>;
+  if (!lote) return <div className="flex h-full items-center justify-center"><p className="text-gray-400">Lote não encontrado.</p></div>;
 
   const hoje = format(new Date(), 'yyyy-MM-dd');
+  const totalDias = dias.length;
+  const numPeriodos = Math.ceil(totalDias / 15);
+  const preenchidos = dias.filter(d => d.kg && Number(d.kg) > 0).length;
 
   return (
-    <div className="min-h-full bg-gray-50">
+    <div className="min-h-full bg-gray-50 flex flex-col">
       {/* Header */}
-      <div className="bg-green-700 px-4 pt-10 pb-5">
+      <div className="bg-green-700 px-4 pt-10 pb-5 flex-shrink-0">
         <div className="flex items-center gap-3 mb-1">
           {!isNovo && (
             <button onClick={() => router.back()} className="text-green-200">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <path d="M19 12H5M12 5l-7 7 7 7"/>
-              </svg>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
             </button>
           )}
-          <div>
-            <h1 className="text-white text-xl font-extrabold">
-              {isNovo ? 'Configurar Dieta' : 'Editar Dieta'}
-            </h1>
-            <p className="text-green-200 text-xs">{lote?.nome} · {dias.length} dias</p>
+          <div className="flex-1">
+            <h1 className="text-white text-xl font-extrabold">{isNovo ? 'Configurar Dieta' : 'Editar Dieta'}</h1>
+            <p className="text-green-200 text-xs">{lote.nome} · {totalDias} dias · {preenchidos}/{totalDias} preenchidos</p>
           </div>
         </div>
-        {isNovo && (
-          <p className="text-green-200 text-sm mt-2">
-            Defina a quantidade recomendada (kg) para cada dia do confinamento.
-          </p>
+      </div>
+
+      {/* Abas */}
+      <div className="flex bg-white border-b border-gray-200 flex-shrink-0">
+        <button onClick={() => setAbaAtiva('periodos')}
+          className={`flex-1 py-3 text-sm font-bold border-b-2 transition ${abaAtiva === 'periodos' ? 'text-green-700 border-green-700' : 'text-gray-400 border-transparent'}`}>
+          📐 Por Período
+        </button>
+        <button onClick={() => setAbaAtiva('dias')}
+          className={`flex-1 py-3 text-sm font-bold border-b-2 transition ${abaAtiva === 'dias' ? 'text-green-700 border-green-700' : 'text-gray-400 border-transparent'}`}>
+          📅 Dia a Dia
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto">
+        {abaAtiva === 'periodos' ? (
+          <div className="px-4 py-4 space-y-4">
+            {/* Fórmula */}
+            <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4">
+              <p className="text-xs font-bold text-blue-700 mb-1">📐 FÓRMULA AUTOMÁTICA</p>
+              <p className="text-xs text-blue-600 leading-relaxed">
+                Período 1: <strong>peso × 1% × (7÷6) × bois</strong>{'\n'}
+                Cada período +15 dias adiciona <strong>+0,5kg por boi/dia</strong>
+              </p>
+              <div className="mt-2 bg-blue-100 rounded-xl p-2 text-xs text-blue-700">
+                Base calculada: <strong>{(lote.pesoEntrada * 0.01 * (7/6)).toFixed(2)}kg/boi</strong> × {lote.quantidadeBois} bois = <strong>{calcularPeriodo(lote.pesoEntrada, lote.quantidadeBois, 1)}kg</strong>
+              </div>
+              <button onClick={recalcular}
+                className="mt-3 w-full bg-blue-600 text-white text-sm font-bold py-2 rounded-xl active:bg-blue-700">
+                🔄 Recalcular pela fórmula
+              </button>
+            </div>
+
+            {/* Períodos */}
+            <div className="space-y-3">
+              {Array.from({ length: numPeriodos }, (_, i) => {
+                const diaInicio = i * 15 + 1;
+                const diaFim = Math.min((i + 1) * 15, totalDias);
+                const dataInicio = format(addDays(new Date(lote.dataInicio), diaInicio - 1), 'dd/MM');
+                const dataFim = format(addDays(new Date(lote.dataInicio), diaFim - 1), 'dd/MM');
+                return (
+                  <div key={i} className="bg-white rounded-2xl shadow-sm p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div>
+                        <p className="font-bold text-gray-800 text-sm">Período {i + 1}</p>
+                        <p className="text-xs text-gray-400">Dias {diaInicio}–{diaFim} · {dataInicio} a {dataFim}</p>
+                      </div>
+                      <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-bold">
+                        {diaFim - diaInicio + 1} dias
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="number"
+                        value={periodos[i]?.kg ?? ''}
+                        onChange={e => setPeriodoKg(i, e.target.value)}
+                        placeholder="0"
+                        min="0"
+                        className="flex-1 border-2 border-green-400 rounded-xl px-3 py-3 text-xl font-extrabold text-green-700 text-center focus:outline-none focus:ring-2 focus:ring-green-300 bg-green-50"
+                      />
+                      <span className="text-gray-400 font-semibold">kg/dia</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <button onClick={aplicarPeriodos}
+              className="w-full bg-green-700 text-white font-bold py-4 rounded-2xl active:bg-green-800">
+              ✓ Aplicar períodos a todos os dias
+            </button>
+          </div>
+        ) : (
+          <div>
+            {/* Atalho rápido */}
+            <div className="px-4 py-3 bg-white border-b border-gray-100">
+              <p className="text-xs font-bold text-gray-500 mb-2">APLICAR UM VALOR A TODOS OS DIAS</p>
+              <div className="flex gap-2">
+                <input id="atalho" type="number" placeholder="Ex: 1200"
+                  className="flex-1 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
+                <button onClick={() => {
+                  const val = (document.getElementById('atalho') as HTMLInputElement)?.value;
+                  if (val && Number(val) > 0) setDias(prev => prev.map(d => ({ ...d, kg: val, editado: true })));
+                }} className="bg-green-700 text-white font-bold px-4 py-2.5 rounded-xl text-sm active:bg-green-800">
+                  Aplicar
+                </button>
+              </div>
+            </div>
+
+            {/* Lista dia a dia */}
+            <div className="divide-y divide-gray-100">
+              {dias.map((d, i) => {
+                const isHoje = d.data === hoje;
+                const isPast = d.data < hoje;
+                const periodo = Math.ceil(d.dia / 15);
+                const inicioPeriodo = d.dia % 15 === 1;
+                return (
+                  <div key={d.data}>
+                    {inicioPeriodo && (
+                      <div className="bg-gray-100 px-4 py-1.5">
+                        <p className="text-xs font-bold text-gray-500">PERÍODO {periodo} — Dias {(periodo - 1) * 15 + 1}–{Math.min(periodo * 15, totalDias)}</p>
+                      </div>
+                    )}
+                    <div className={`flex items-center gap-3 px-4 py-3 ${isHoje ? 'bg-green-50' : 'bg-white'}`}>
+                      <div className="w-16 text-center flex-shrink-0">
+                        <p className={`text-sm font-bold ${isHoje ? 'text-green-700' : isPast ? 'text-gray-400' : 'text-gray-700'}`}>
+                          Dia {d.dia}
+                        </p>
+                        <p className="text-xs text-gray-400">{format(new Date(d.data + 'T12:00:00'), 'dd/MM')}</p>
+                        {isHoje && <span className="text-xs text-green-600 font-bold">Hoje</span>}
+                      </div>
+                      <input
+                        type="number"
+                        value={d.kg}
+                        onChange={e => setKgDia(i, e.target.value)}
+                        placeholder="0"
+                        min="0"
+                        className={`flex-1 border rounded-xl px-3 py-2.5 text-sm text-right font-bold focus:outline-none focus:ring-2 focus:ring-green-500
+                          ${d.editado ? 'border-blue-300 bg-blue-50' : isHoje ? 'border-green-400 bg-white' : 'border-gray-200 bg-white'}`}
+                      />
+                      <span className="text-gray-400 text-sm flex-shrink-0">kg</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         )}
       </div>
 
-      {/* Aplicar a todos */}
-      <div className="px-4 py-3 bg-white border-b border-gray-100">
-        <p className="text-xs font-bold text-gray-500 mb-2">ATALHO — Aplicar mesmo valor a todos os dias</p>
-        <div className="flex gap-2">
-          <input
-            type="number"
-            value={aplicarTodos}
-            onChange={e => setAplicarTodos(e.target.value)}
-            placeholder="Ex: 1200"
-            className="flex-1 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-          />
-          <button
-            onClick={aplicarATodos}
-            disabled={!aplicarTodos}
-            className="bg-green-700 text-white font-bold px-4 py-2.5 rounded-xl text-sm disabled:opacity-40 active:bg-green-800"
-          >
-            Aplicar
-          </button>
-        </div>
-      </div>
-
-      {/* Grid de dias */}
-      <div className="divide-y divide-gray-100">
-        {dias.map((d, i) => {
-          const isHoje = d.data === hoje;
-          const isPast = d.data < hoje;
-          return (
-            <div
-              key={d.data}
-              className={`flex items-center gap-3 px-4 py-3 ${isHoje ? 'bg-green-50' : 'bg-white'}`}
-            >
-              <div className="w-14 text-center">
-                <p className={`text-sm font-bold ${isHoje ? 'text-green-700' : isPast ? 'text-gray-400' : 'text-gray-700'}`}>
-                  Dia {d.dia}
-                </p>
-                <p className="text-xs text-gray-400">
-                  {format(new Date(d.data + 'T12:00:00'), 'dd/MM', { locale: ptBR })}
-                </p>
-                {isHoje && <span className="text-xs text-green-600 font-bold">Hoje</span>}
-              </div>
-              <div className="flex-1 flex items-center gap-2">
-                <input
-                  type="number"
-                  value={d.kg}
-                  onChange={e => setKg(i, e.target.value)}
-                  placeholder="0"
-                  min="0"
-                  className={`w-full border rounded-xl px-3 py-2.5 text-sm text-right font-bold focus:outline-none focus:ring-2 focus:ring-green-500
-                    ${isHoje ? 'border-green-400 bg-white' : 'border-gray-200 bg-white'}`}
-                />
-                <span className="text-gray-400 text-sm">kg</span>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
       {/* Rodapé fixo */}
-      <div className="sticky bottom-0 bg-white border-t border-gray-200 px-4 py-3 pb-safe">
+      <div className="flex-shrink-0 bg-white border-t border-gray-200 px-4 py-3">
         {erro && <p className="text-red-500 text-sm text-center mb-2">{erro}</p>}
         {salvo && <p className="text-green-600 text-sm text-center mb-2 font-semibold">✓ Dieta salva!</p>}
-        <button
-          onClick={salvar}
-          disabled={salvando || salvo}
-          className="w-full bg-green-700 text-white font-bold py-4 rounded-2xl disabled:opacity-60 active:bg-green-800"
-        >
-          {salvando ? 'Salvando...' : salvo ? 'Salvo!' : 'Salvar dieta'}
+        <button onClick={salvar} disabled={salvando || salvo}
+          className="w-full bg-green-700 text-white font-bold py-4 rounded-2xl disabled:opacity-60 active:bg-green-800">
+          {salvando ? 'Salvando...' : salvo ? 'Salvo!' : `Salvar dieta (${preenchidos}/${totalDias} dias)`}
         </button>
       </div>
     </div>
