@@ -129,12 +129,19 @@ export default function GerentePainel() {
                 const diasConfinamento = Math.floor(
                   (new Date().getTime() - new Date(lote.dataInicio).getTime()) / (1000 * 60 * 60 * 24)
                 );
+                const totalKgHoje = tratosLote.reduce((s, t) => s + t.quantidadeEfetiva, 0);
+                const kgBoiDia = totalKgHoje > 0 && lote.quantidadeBois > 0
+                  ? ((totalKgHoje / lote.quantidadeBois / 6) * 7).toFixed(1)
+                  : null;
                 return (
                   <Link key={lote.id} href={`/gerente/lotes/${lote.id}`}>
                     <div className="bg-white rounded-2xl shadow-sm p-4 flex items-center justify-between active:bg-gray-50">
                       <div>
                         <p className="font-bold text-gray-800 text-sm">{lote.nome}</p>
                         <p className="text-xs text-gray-400">{lote.invernada} · {lote.quantidadeBois} bois · Dia {diasConfinamento + 1}</p>
+                        {kgBoiDia && (
+                          <p className="text-xs text-green-600 font-semibold mt-0.5">{kgBoiDia} kg/boi/dia</p>
+                        )}
                       </div>
                       <div className="flex items-center gap-2">
                         <span className={`text-xs font-bold px-2 py-1 rounded-full ${

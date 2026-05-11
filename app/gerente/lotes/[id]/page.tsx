@@ -85,6 +85,10 @@ export default function LoteDetailPage() {
   }, {});
   const datas = Object.keys(tratosPorData).sort((a, b) => b.localeCompare(a));
   const tratosHoje = tratosPorData[hoje] ?? [];
+  const totalKgHoje = tratosHoje.reduce((s, t) => s + t.quantidadeEfetiva, 0);
+  const kgBoiDia = totalKgHoje > 0 && lote.quantidadeBois > 0
+    ? ((totalKgHoje / lote.quantidadeBois / 6) * 7).toFixed(1)
+    : null;
 
   return (
     <div className="min-h-full bg-gray-50">
@@ -103,18 +107,22 @@ export default function LoteDetailPage() {
           </Link>
         </div>
 
-        <div className="grid grid-cols-3 gap-2 text-center mb-3">
+        <div className="grid grid-cols-4 gap-2 text-center mb-3">
           <div className="bg-green-600 rounded-xl p-2">
-            <p className="text-white text-lg font-extrabold">{diasConfinamento}</p>
+            <p className="text-white text-base font-extrabold">{diasConfinamento}</p>
             <p className="text-green-200 text-xs">Dias</p>
           </div>
           <div className="bg-green-600 rounded-xl p-2">
-            <p className="text-white text-lg font-extrabold">{diasRestantes > 0 ? diasRestantes : 0}</p>
+            <p className="text-white text-base font-extrabold">{diasRestantes > 0 ? diasRestantes : 0}</p>
             <p className="text-green-200 text-xs">P/ abate</p>
           </div>
           <div className="bg-green-600 rounded-xl p-2">
-            <p className="text-white text-lg font-extrabold">{dietaHoje ? `${dietaHoje.quantidadeRecomendada}kg` : '—'}</p>
+            <p className="text-white text-base font-extrabold">{dietaHoje ? `${dietaHoje.quantidadeRecomendada}kg` : '—'}</p>
             <p className="text-green-200 text-xs">Recomend.</p>
+          </div>
+          <div className="bg-green-600 rounded-xl p-2">
+            <p className="text-white text-base font-extrabold">{kgBoiDia ?? '—'}</p>
+            <p className="text-green-200 text-xs">kg/b/dia</p>
           </div>
         </div>
 
@@ -160,6 +168,9 @@ export default function LoteDetailPage() {
                 const totalKg = ts.reduce((s, t) => s + t.quantidadeEfetiva, 0);
                 const dietaDia = dietas.find(d => d.data === data);
                 const diff = dietaDia ? totalKg - dietaDia.quantidadeRecomendada : null;
+                const kgBD = lote.quantidadeBois > 0
+                  ? ((totalKg / lote.quantidadeBois / 6) * 7).toFixed(1)
+                  : null;
                 return (
                   <div key={data} className="bg-white rounded-2xl shadow-sm p-4">
                     <div className="flex justify-between items-start mb-3">
@@ -168,6 +179,9 @@ export default function LoteDetailPage() {
                       </p>
                       <div className="text-right">
                         <p className="font-bold text-green-700">{totalKg}kg</p>
+                        {kgBD && (
+                          <p className="text-xs text-green-600 font-semibold">{kgBD} kg/b/dia</p>
+                        )}
                         {diff !== null && (
                           <p className={`text-xs ${diff >= 0 ? 'text-blue-500' : 'text-red-500'}`}>
                             {diff >= 0 ? '+' : ''}{diff}kg vs dieta
@@ -301,10 +315,15 @@ function ModalLancarTrato({ lote, tratosHoje, dietaHoje, usuario, onClose, onSal
             <>
               <input
                 type="number"
+                inputMode="numeric"
                 value={quantidade}
                 onChange={e => setQuantidade(e.target.value)}
+                onBlur={e => {
+                  const v = parseFloat(e.target.value);
+                  if (!isNaN(v) && v > 0) setQuantidade(String(Math.ceil(v)));
+                }}
                 placeholder="0"
-                min="0"
+                min="1"
                 autoFocus
                 className="w-full border-2 border-green-500 rounded-2xl px-4 py-5 text-4xl font-extrabold text-green-700 text-center focus:outline-none focus:ring-4 focus:ring-green-200 bg-green-50 mb-2"
               />

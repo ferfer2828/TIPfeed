@@ -63,9 +63,16 @@ function DietaPage() {
       });
     }
     setDias(diasGerados);
-    const perGerados = Array.from({ length: numPeriodos }, (_, i) => ({
-      kg: String(calcularPeriodo(l.pesoEntrada, l.quantidadeBois, i + 1)),
-    }));
+    // Fórmula automática apenas até dia 30 (períodos 1 e 2).
+    // A partir do dia 31 o usuário preenche manualmente.
+    const perGerados = Array.from({ length: numPeriodos }, (_, i) => {
+      const diaInicioPeriodo = i * 15 + 1;
+      return {
+        kg: diaInicioPeriodo <= 30
+          ? String(calcularPeriodo(l.pesoEntrada, l.quantidadeBois, i + 1))
+          : '',
+      };
+    });
     setPeriodos(perGerados);
     setCarregando(false);
   }
@@ -123,9 +130,14 @@ function DietaPage() {
 
   function recalcular() {
     if (!lote) return;
-    const novos = periodos.map((_, i) => ({
-      kg: String(calcularPeriodo(lote.pesoEntrada, lote.quantidadeBois, i + 1)),
-    }));
+    const novos = periodos.map((_, i) => {
+      const diaInicioPeriodo = i * 15 + 1;
+      return {
+        kg: diaInicioPeriodo <= 30
+          ? String(calcularPeriodo(lote.pesoEntrada, lote.quantidadeBois, i + 1))
+          : '',
+      };
+    });
     setPeriodos(novos);
   }
 
@@ -244,25 +256,39 @@ function DietaPage() {
                 const diaFim = Math.min((i + 1) * 15, totalDias);
                 const dataInicio = format(addDays(new Date(lote.dataInicio), diaInicio - 1), 'dd/MM');
                 const dataFim = format(addDays(new Date(lote.dataInicio), diaFim - 1), 'dd/MM');
+                const isManual = diaInicio > 30;
                 return (
-                  <div key={i} className="bg-white rounded-2xl shadow-sm p-4">
+                  <div key={i} className={`rounded-2xl shadow-sm p-4 ${isManual ? 'bg-orange-50 border border-orange-200' : 'bg-white'}`}>
                     <div className="flex items-center justify-between mb-3">
                       <div>
                         <p className="font-bold text-gray-800 text-sm">Período {i + 1}</p>
                         <p className="text-xs text-gray-400">Dias {diaInicio}–{diaFim} · {dataInicio} a {dataFim}</p>
                       </div>
-                      <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-bold">
-                        {diaFim - diaInicio + 1} dias
+                      <span className={`text-xs px-2 py-1 rounded-full font-bold ${
+                        isManual
+                          ? 'bg-orange-100 text-orange-700'
+                          : 'bg-green-100 text-green-700'
+                      }`}>
+                        {isManual ? '✍️ Manual' : `${diaFim - diaInicio + 1} dias`}
                       </span>
                     </div>
+                    {isManual && (
+                      <p className="text-xs text-orange-600 mb-2">
+                        Período após dia 30 — preencha manualmente conforme evolução do lote.
+                      </p>
+                    )}
                     <div className="flex items-center gap-3">
                       <input
                         type="number"
                         value={periodos[i]?.kg ?? ''}
                         onChange={e => setPeriodoKg(i, e.target.value)}
-                        placeholder="0"
+                        placeholder={isManual ? 'Preencher' : '0'}
                         min="0"
-                        className="flex-1 border-2 border-green-400 rounded-xl px-3 py-3 text-xl font-extrabold text-green-700 text-center focus:outline-none focus:ring-2 focus:ring-green-300 bg-green-50"
+                        className={`flex-1 border-2 rounded-xl px-3 py-3 text-xl font-extrabold text-center focus:outline-none focus:ring-2 ${
+                          isManual
+                            ? 'border-orange-300 text-orange-700 bg-white focus:ring-orange-200'
+                            : 'border-green-400 text-green-700 bg-green-50 focus:ring-green-300'
+                        }`}
                       />
                       <span className="text-gray-400 font-semibold">kg/dia</span>
                     </div>

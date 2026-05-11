@@ -579,6 +579,10 @@ function ModalLancarTrato({ lote, tratosHoje: tratosIniciais, dietaHoje, usuario
                     inputMode="numeric"
                     value={quantidade}
                     onChange={e => setQuantidade(e.target.value)}
+                    onBlur={e => {
+                      const v = parseFloat(e.target.value);
+                      if (!isNaN(v) && v > 0) setQuantidade(String(Math.ceil(v)));
+                    }}
                     placeholder="0"
                     min="1"
                     autoFocus
