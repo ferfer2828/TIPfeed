@@ -13,11 +13,11 @@ import { db } from './firebase';
 
 // ─── Exportar lote individual ─────────────────────────────────────────────────
 
-export async function exportarLote(lote: Lote, _fazendaId: string) {
+export async function exportarLote(lote: Lote, fazendaId: string) {
   const [tratos, leituras, dietas] = await Promise.all([
-    getTratosByLote(lote.id),
-    getLeiturasCochoByLote(lote.id),
-    getDietaDias(lote.id),
+    getTratosByLote(lote.id, fazendaId),
+    getLeiturasCochoByLote(lote.id, fazendaId),
+    getDietaDias(lote.id, fazendaId),
   ]);
 
   const dietaMap: Record<string, number> = {};

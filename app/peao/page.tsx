@@ -29,13 +29,16 @@ export default function PeaoHome() {
   // Recarrega ao voltar para a tela após lançar trato ou cocho
   useEffect(() => {
     const onFocus = () => { if (usuario) carregar(); };
-    const onVisibility = () => { if (document.visibilityState === 'visible' && usuario) carregar(); };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible' && usuario) carregar();
+    };
     window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onVisibility);
     return () => {
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onVisibility);
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [usuario]);
 
   async function carregar() {
@@ -46,9 +49,9 @@ export default function PeaoHome() {
       const status = await Promise.all(
         lotes.map(async lote => {
           const [dieta, tratos, cocho] = await Promise.all([
-            getDietaDiaByData(lote.id, hoje),
-            getTratosByLoteData(lote.id, hoje),
-            getLeituraCocho(lote.id, hoje),
+            getDietaDiaByData(lote.id, hoje, lote.fazendaId),
+            getTratosByLoteData(lote.id, hoje, lote.fazendaId),
+            getLeituraCocho(lote.id, hoje, lote.fazendaId),
           ]);
           return {
             lote,

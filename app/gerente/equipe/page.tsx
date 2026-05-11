@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { criarConvite, listarPeoes, listarConvites } from '@/lib/convites';
+import { criarConvite, listarPeoes, listarConvites, getNomeFazenda } from '@/lib/convites';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
@@ -12,17 +12,23 @@ export default function EquipePage() {
   const [carregando, setCarregando] = useState(true);
   const [gerando, setGerando] = useState(false);
   const [codigoGerado, setCodigoGerado] = useState<string | null>(null);
+  const [erroConvite, setErroConvite] = useState('');
   const [aba, setAba] = useState<'peoes' | 'convites'>('peoes');
 
   async function carregar() {
     if (!usuario) return;
-    const [p, c] = await Promise.all([
-      listarPeoes(usuario.fazendaId),
-      listarConvites(usuario.fazendaId),
-    ]);
-    setPeoes(p);
-    setConvites(c);
-    setCarregando(false);
+    try {
+      const [p, c] = await Promise.all([
+        listarPeoes(usuario.fazendaId),
+        listarConvites(usuario.fazendaId),
+      ]);
+      setPeoes(p);
+      setConvites(c);
+    } catch (e) {
+      console.error('Erro ao carregar equipe:', e);
+    } finally {
+      setCarregando(false);
+    }
   }
 
   useEffect(() => { carregar(); }, [usuario]);
@@ -30,11 +36,14 @@ export default function EquipePage() {
   async function gerarConvite() {
     if (!usuario) return;
     setGerando(true);
+    setErroConvite('');
     try {
-      const fazendaNome = 'Fazenda'; // buscado via contexto
+      const fazendaNome = await getNomeFazenda(usuario.fazendaId);
       const codigo = await criarConvite(usuario.fazendaId, fazendaNome, usuario.uid);
       setCodigoGerado(codigo);
       carregar();
+    } catch (e: any) {
+      setErroConvite(e?.message ?? 'Erro ao gerar convite. Tente novamente.');
     } finally {
       setGerando(false);
     }
@@ -61,6 +70,12 @@ export default function EquipePage() {
           >
             {gerando ? 'Gerando...' : '+ Gerar código de convite'}
           </button>
+
+          {erroConvite && (
+            <div className="mt-3 bg-red-50 border border-red-200 rounded-xl p-3 text-center">
+              <p className="text-sm text-red-600 font-semibold">⚠️ {erroConvite}</p>
+            </div>
+          )}
 
           {codigoGerado && (
             <div className="mt-4 bg-green-50 border-2 border-green-400 rounded-2xl p-4 text-center">

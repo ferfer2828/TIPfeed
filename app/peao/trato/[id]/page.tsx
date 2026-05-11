@@ -25,11 +25,19 @@ export default function TratoPage() {
 
   useEffect(() => {
     if (!usuario) return;
-    Promise.all([
-      getLote(id),
-      getDietaDiaByData(id, hoje),
-      getTratosByLoteData(id, hoje),
-    ]).then(([l, d, t]) => {
+    getLote(id).then(l => {
+      if (!l) {
+        setCarregando(false);
+        return;
+      }
+      return Promise.all([
+        Promise.resolve(l),
+        getDietaDiaByData(id, hoje, l.fazendaId),
+        getTratosByLoteData(id, hoje, l.fazendaId),
+      ]);
+    }).then((res) => {
+      if (!res) return;
+      const [l, d, t] = res;
       setLote(l);
       setDieta(d);
       setTratosHoje(t);

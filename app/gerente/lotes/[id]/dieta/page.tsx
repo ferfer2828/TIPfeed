@@ -88,7 +88,7 @@ function DietaPage() {
     for (let tentativa = 0; tentativa < 4; tentativa++) {
       if (tentativa > 0) await new Promise(r => setTimeout(r, tentativa * 800));
       try {
-        const [l, dietas] = await Promise.all([getLote(id), getDietaDias(id)]);
+        const [l, dietas] = await Promise.all([getLote(id), getDietaDias(id, usuario!.fazendaId)]);
         if (!l) continue;
         processarLote(l, dietas);
         return;

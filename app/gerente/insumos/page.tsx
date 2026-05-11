@@ -238,6 +238,7 @@ export default function InsumosPage() {
       {modal !== null && typeof modal === 'object' && modal.tipo === 'historico' && (
         <ModalHistorico
           insumo={modal.insumo}
+          fazendaId={usuario!.fazendaId}
           onClose={() => setModal(null)}
         />
       )}
@@ -484,12 +485,12 @@ function ModalRecebimento({ insumo, fazendaId, onClose, onSalvo }: {
 
 // ─── Modal Histórico ───────────────────────────────────────────────────────────
 
-function ModalHistorico({ insumo, onClose }: { insumo: Insumo; onClose: () => void }) {
+function ModalHistorico({ insumo, fazendaId, onClose }: { insumo: Insumo; fazendaId: string; onClose: () => void }) {
   const [recebimentos, setRecebimentos] = useState<RecebimentoInsumo[]>([]);
   const [carregando, setCarregando] = useState(true);
 
   useEffect(() => {
-    getRecebimentos(insumo.id).then(r => { setRecebimentos(r); setCarregando(false); });
+    getRecebimentos(insumo.id, fazendaId).then(r => { setRecebimentos(r); setCarregando(false); });
   }, [insumo.id]);
 
   return (
@@ -591,6 +592,9 @@ function ModalCotacao({ insumo, fazendaId, onClose }: {
 }) {
   const [cotacoes, setCotacoes] = useState<Cotacao[]>([]);
   const [carregando, setCarregando] = useState(true);
+
+  // ID da cotação sendo editada (null = nova cotação)
+  const [editandoId, setEditandoId] = useState<string | null>(null);
   const [preco, setPreco] = useState('');
   const [fornecedor, setFornecedor] = useState('');
   const [data, setData] = useState(format(new Date(), 'yyyy-MM-dd'));
@@ -599,35 +603,64 @@ function ModalCotacao({ insumo, fazendaId, onClose }: {
   const cat = categoriaInfo(insumo.categoria);
 
   useEffect(() => {
-    getCotacoesByInsumo(insumo.id)
+    getCotacoesByInsumo(insumo.id, fazendaId)
       .then(c => setCotacoes(c))
       .catch(e => console.error(e))
       .finally(() => setCarregando(false));
   }, [insumo.id]);
 
+  function iniciarEdicao(c: Cotacao) {
+    setEditandoId(c.id);
+    setPreco(String(c.precoUnitario));
+    setFornecedor(c.fornecedor ?? '');
+    setData(c.data);
+    setSalvo(false);
+  }
+
+  function cancelarEdicao() {
+    setEditandoId(null);
+    setPreco('');
+    setFornecedor('');
+    setData(format(new Date(), 'yyyy-MM-dd'));
+    setSalvo(false);
+  }
+
   async function salvar() {
     if (!preco || Number(preco) <= 0) return;
     setSalvando(true);
     try {
-      const novaCotacao: Cotacao = {
-        id: `${insumo.id}_cot_${Date.now()}`,
+      // Se editandoId !== null → edita a cotação existente (mesmo ID = overwrite)
+      // Se null → cria nova cotação com ID novo
+      const cotacao: Cotacao = {
+        id: editandoId ?? `${insumo.id}_cot_${Date.now()}`,
         insumoId: insumo.id,
         fazendaId,
         precoUnitario: Number(preco),
         fornecedor: fornecedor.trim(),
         data,
-        criadoEm: new Date().toISOString(),
+        criadoEm: editandoId
+          ? (cotacoes.find(c => c.id === editandoId)?.criadoEm ?? new Date().toISOString())
+          : new Date().toISOString(),
       };
-      await salvarCotacao(novaCotacao);
-      setCotacoes(prev => [novaCotacao, ...prev]);
-      setPreco('');
-      setFornecedor('');
+      await salvarCotacao(cotacao);
+
+      // Atualiza lista local
+      setCotacoes(prev => {
+        const semEsta = prev.filter(c => c.id !== cotacao.id);
+        return [cotacao, ...semEsta].sort((a, b) => b.data.localeCompare(a.data));
+      });
+
       setSalvo(true);
-      setTimeout(() => setSalvo(false), 2000);
+      setTimeout(() => {
+        setSalvo(false);
+        cancelarEdicao();
+      }, 1500);
     } finally {
       setSalvando(false);
     }
   }
+
+  const modoEdicao = editandoId !== null;
 
   return (
     <ModalBase titulo={`Cotações — ${insumo.nome}`} onClose={onClose}>
@@ -640,9 +673,21 @@ function ModalCotacao({ insumo, fazendaId, onClose }: {
         </div>
       </div>
 
-      {/* Formulário nova cotação */}
-      <div className="bg-blue-50 rounded-xl p-3 space-y-2">
-        <p className="text-xs font-bold text-blue-700 mb-1">Nova cotação</p>
+      {/* Formulário nova / edição */}
+      <div className={`rounded-xl p-3 space-y-2 ${modoEdicao ? 'bg-amber-50 border border-amber-200' : 'bg-blue-50'}`}>
+        <div className="flex items-center justify-between mb-1">
+          <p className={`text-xs font-bold ${modoEdicao ? 'text-amber-700' : 'text-blue-700'}`}>
+            {modoEdicao ? '✏️ Editando cotação' : 'Nova cotação'}
+          </p>
+          {modoEdicao && (
+            <button
+              onClick={cancelarEdicao}
+              className="text-xs text-gray-400 underline active:text-gray-600"
+            >
+              Cancelar
+            </button>
+          )}
+        </div>
         <div className="flex gap-2">
           <div className="flex-1">
             <label className="block text-xs text-gray-500 mb-1">Preço (R$/{insumo.unidade})</label>
@@ -652,7 +697,9 @@ function ModalCotacao({ insumo, fazendaId, onClose }: {
               onChange={e => setPreco(e.target.value)}
               placeholder="0,00"
               step="0.01"
-              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              className={`w-full border rounded-xl px-3 py-2.5 text-sm focus:outline-none bg-white focus:ring-2 ${
+                modoEdicao ? 'border-amber-300 focus:ring-amber-400' : 'border-gray-200 focus:ring-blue-500'
+              }`}
             />
           </div>
           <div className="flex-1">
@@ -661,7 +708,9 @@ function ModalCotacao({ insumo, fazendaId, onClose }: {
               type="date"
               value={data}
               onChange={e => setData(e.target.value)}
-              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              className={`w-full border rounded-xl px-3 py-2.5 text-sm focus:outline-none bg-white focus:ring-2 ${
+                modoEdicao ? 'border-amber-300 focus:ring-amber-400' : 'border-gray-200 focus:ring-blue-500'
+              }`}
             />
           </div>
         </div>
@@ -672,43 +721,72 @@ function ModalCotacao({ insumo, fazendaId, onClose }: {
             value={fornecedor}
             onChange={e => setFornecedor(e.target.value)}
             placeholder="Ex: Agropecuária XYZ"
-            className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+            className={`w-full border rounded-xl px-3 py-2.5 text-sm focus:outline-none bg-white focus:ring-2 ${
+              modoEdicao ? 'border-amber-300 focus:ring-amber-400' : 'border-gray-200 focus:ring-blue-500'
+            }`}
           />
         </div>
         <button
           onClick={salvar}
           disabled={salvando || !preco || Number(preco) <= 0}
           className={`w-full font-bold py-3 rounded-xl text-sm disabled:opacity-50 transition ${
-            salvo ? 'bg-green-600 text-white' : 'bg-blue-600 text-white active:bg-blue-700'
+            salvo
+              ? 'bg-green-600 text-white'
+              : modoEdicao
+              ? 'bg-amber-500 text-white active:bg-amber-600'
+              : 'bg-blue-600 text-white active:bg-blue-700'
           }`}
         >
-          {salvo ? '✅ Salvo!' : salvando ? 'Salvando...' : 'Registrar cotação'}
+          {salvo ? '✅ Salvo!' : salvando ? 'Salvando...' : modoEdicao ? 'Salvar alterações' : 'Registrar cotação'}
         </button>
       </div>
 
       {/* Histórico de cotações */}
       <div>
-        <p className="text-xs font-bold text-gray-500 mb-2">Histórico de preços</p>
+        <p className="text-xs font-bold text-gray-500 mb-2">
+          Histórico de preços
+          {cotacoes.length > 0 && <span className="font-normal text-gray-400"> · toque para editar</span>}
+        </p>
         {carregando ? (
           <p className="text-center text-gray-400 text-sm py-2">Carregando...</p>
         ) : cotacoes.length === 0 ? (
           <p className="text-center text-gray-400 text-sm py-2">Nenhuma cotação registrada</p>
         ) : (
           <div className="space-y-2 max-h-52 overflow-y-auto">
-            {cotacoes.map((c, idx) => (
-              <div key={c.id} className={`rounded-xl p-3 flex justify-between items-center ${idx === 0 ? 'bg-blue-50 border border-blue-200' : 'bg-gray-50'}`}>
-                <div>
-                  <p className="text-sm font-bold text-gray-700">
-                    {format(new Date(c.data + 'T12:00:00'), 'dd/MM/yyyy')}
-                  </p>
-                  {c.fornecedor && <p className="text-xs text-gray-400">{c.fornecedor}</p>}
-                  {idx === 0 && <p className="text-xs text-blue-600 font-semibold">Mais recente</p>}
-                </div>
-                <p className="font-bold text-blue-700 text-base">
-                  R$ {c.precoUnitario.toFixed(2)}<span className="text-xs text-gray-400 font-normal">/{insumo.unidade}</span>
-                </p>
-              </div>
-            ))}
+            {cotacoes.map((c, idx) => {
+              const estaEditando = editandoId === c.id;
+              return (
+                <button
+                  key={c.id}
+                  onClick={() => estaEditando ? cancelarEdicao() : iniciarEdicao(c)}
+                  className={`w-full text-left rounded-xl p-3 flex justify-between items-center transition active:scale-[0.98] ${
+                    estaEditando
+                      ? 'bg-amber-100 border-2 border-amber-400'
+                      : idx === 0
+                      ? 'bg-blue-50 border border-blue-200'
+                      : 'bg-gray-50 border border-transparent'
+                  }`}
+                >
+                  <div>
+                    <p className="text-sm font-bold text-gray-700">
+                      {format(new Date(c.data + 'T12:00:00'), 'dd/MM/yyyy')}
+                    </p>
+                    {c.fornecedor && <p className="text-xs text-gray-400">{c.fornecedor}</p>}
+                    {estaEditando
+                      ? <p className="text-xs text-amber-600 font-semibold">Editando...</p>
+                      : idx === 0
+                      ? <p className="text-xs text-blue-600 font-semibold">Mais recente</p>
+                      : null}
+                  </div>
+                  <div className="text-right">
+                    <p className="font-bold text-blue-700 text-base">
+                      R$ {c.precoUnitario.toFixed(2)}
+                    </p>
+                    <p className="text-xs text-gray-400">/{insumo.unidade}</p>
+                  </div>
+                </button>
+              );
+            })}
           </div>
         )}
       </div>

@@ -59,7 +59,10 @@ export default function CochoPage() {
 
   useEffect(() => {
     if (!usuario) return;
-    Promise.all([getLote(id), getLeituraCocho(id, hoje)]).then(([l, lc]) => {
+    getLote(id).then(async l => {
+      const lc = l ? await getLeituraCocho(id, hoje, l.fazendaId) : null;
+      return [l, lc] as const;
+    }).then(([l, lc]) => {
       setLote(l);
       if (lc) {
         setLeituraExistente(lc);

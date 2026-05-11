@@ -41,11 +41,14 @@ export default function GerentePainel() {
   // Recarrega ao voltar para a aba/página
   useEffect(() => {
     const onFocus = () => carregar();
+    const onVisibility = () => { if (document.visibilityState === 'visible') carregar(); };
     window.addEventListener('focus', onFocus);
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') carregar();
-    });
-    return () => window.removeEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [usuario]);
 
   const alertas = insumos.filter(i => i.alertaAtivo);

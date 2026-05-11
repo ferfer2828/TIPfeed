@@ -27,11 +27,13 @@ export default function LoteDetailPage() {
   const hoje = format(new Date(), 'yyyy-MM-dd');
 
   async function carregar() {
+    if (!usuario) return;
     setCarregando(true);
     setErro('');
     try {
+      const fid = usuario.fazendaId;
       const [l, t, lc, d] = await Promise.all([
-        getLote(id), getTratosByLote(id), getLeiturasCochoByLote(id), getDietaDias(id),
+        getLote(id), getTratosByLote(id, fid), getLeiturasCochoByLote(id, fid), getDietaDias(id, fid),
       ]);
       setLote(l); setTratos(t); setLeituras(lc); setDietas(d);
     } catch (e: any) {
@@ -45,6 +47,7 @@ export default function LoteDetailPage() {
   // Aguarda o usuário estar autenticado antes de carregar
   useEffect(() => {
     if (usuario) carregar();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, usuario]);
 
   if (carregando) return (

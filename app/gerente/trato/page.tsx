@@ -35,7 +35,7 @@ export default function TratoGerentePage() {
         const todosTratos = await getTratosByFazendaData(usuario.fazendaId, hoje);
         const infos = await Promise.all(
           lotes.map(async lote => {
-            const dieta = await getDietaDiaByData(lote.id, hoje);
+            const dieta = await getDietaDiaByData(lote.id, hoje, lote.fazendaId);
             const tratos = todosTratos.filter(t => t.loteId === lote.id);
             return { lote, dietaHoje: dieta, tratosHoje: tratos };
           })
@@ -55,11 +55,13 @@ export default function TratoGerentePage() {
   // Recarrega ao voltar para a tela
   useEffect(() => {
     const onFocus = () => carregar();
+    const onVisibility = () => { if (document.visibilityState === 'visible') carregar(); };
     window.addEventListener('focus', onFocus);
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') carregar();
-    });
-    return () => window.removeEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   }, [usuario]);
 
   async function moverOrdem(index: number, direcao: 'up' | 'down') {

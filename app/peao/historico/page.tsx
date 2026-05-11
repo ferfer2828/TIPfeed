@@ -31,8 +31,8 @@ export default function HistoricoPage() {
     setCarregando(true);
     setLoteSelecionado(lote);
     const [t, lc] = await Promise.all([
-      getTratosByLote(lote.id),
-      getLeiturasCochoByLote(lote.id),
+      getTratosByLote(lote.id, lote.fazendaId),
+      getLeiturasCochoByLote(lote.id, lote.fazendaId),
     ]);
     // Filtrar apenas tratos do próprio peão
     const meusTratos = t.filter(tr => tr.funcionarioId === usuario?.uid);
