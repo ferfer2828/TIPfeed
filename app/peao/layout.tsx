@@ -7,6 +7,7 @@ import SplashScreen from '../components/SplashScreen';
 
 const tabs = [
   { href: '/peao', label: 'Início', icon: HomeIcon },
+  { href: '/peao/trato', label: 'Trato', icon: TratoIcon },
   { href: '/peao/insumos', label: 'Insumos', icon: InsumosIcon },
   { href: '/peao/historico', label: 'Histórico', icon: HistoricoIcon },
 ];
@@ -28,6 +29,7 @@ export default function PeaoLayout({ children }: { children: React.ReactNode }) 
 
   const isActive = (href: string) => {
     if (href === '/peao') return pathname === '/peao';
+    if (href === '/peao/trato') return pathname === '/peao/trato';
     return pathname.startsWith(href);
   };
 
@@ -61,6 +63,17 @@ function HomeIcon({ active }: { active: boolean }) {
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? '#15803d' : '#9ca3af'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
       <polyline points="9 22 9 12 15 12 15 22"/>
+    </svg>
+  );
+}
+
+function TratoIcon({ active }: { active: boolean }) {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? '#15803d' : '#9ca3af'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 22V12"/>
+      <path d="M12 12C12 12 7 10 7 6a5 5 0 0 1 10 0c0 4-5 6-5 6z"/>
+      <path d="M12 12c0 0-2-3-5-3"/>
+      <path d="M12 12c0 0 2-3 5-3"/>
     </svg>
   );
 }
