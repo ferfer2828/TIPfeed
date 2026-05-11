@@ -273,7 +273,7 @@ export default function TratoGerentePage() {
 
 // ─── Modal Lançar Trato ───────────────────────────────────────────────────────
 
-function ModalLancarTrato({ lote, tratosHoje, dietaHoje, usuario, onClose, onSalvo }: {
+function ModalLancarTrato({ lote, tratosHoje: tratosIniciais, dietaHoje, usuario, onClose, onSalvo }: {
   lote: Lote;
   tratosHoje: Trato[];
   dietaHoje: DietaDia | null;
@@ -281,14 +281,14 @@ function ModalLancarTrato({ lote, tratosHoje, dietaHoje, usuario, onClose, onSal
   onClose: () => void;
   onSalvo: () => void;
 }) {
-  const jaLancado = tratosHoje.reduce((s, t) => s + t.quantidadeEfetiva, 0);
-  const tratoNum = tratosHoje.length + 1;
-  const todosFeitos = tratosHoje.length >= lote.numTratosDia;
+  const [tratos, setTratos] = useState<Trato[]>(tratosIniciais);
+  const jaLancado = tratos.reduce((s, t) => s + t.quantidadeEfetiva, 0);
+  const tratoNum = tratos.length + 1;
+  const todosFeitos = tratos.length >= lote.numTratosDia;
 
-  // Sugestão inteligente: divide pelo nº de tratos no 1º trato, resto nos seguintes
   const sugestao = dietaHoje
-    ? tratosHoje.length === 0 && lote.numTratosDia > 1
-      ? Math.round(dietaHoje.quantidadeRecomendada / lote.numTratosDia)
+    ? tratos.length === 0 && lote.numTratosDia > 1
+      ? Math.ceil(dietaHoje.quantidadeRecomendada / lote.numTratosDia)
       : Math.max(0, dietaHoje.quantidadeRecomendada - jaLancado)
     : 0;
 
@@ -297,14 +297,18 @@ function ModalLancarTrato({ lote, tratosHoje, dietaHoje, usuario, onClose, onSal
   const [salvo, setSalvo] = useState(false);
   const [erro, setErro] = useState('');
 
+  // Edição inline de trato existente
+  const [editandoId, setEditandoId] = useState<string | null>(null);
+  const [editQtd, setEditQtd] = useState('');
+
   async function salvar() {
-    const qtd = Number(quantidade);
+    const qtd = Math.ceil(Number(quantidade));
     if (!qtd || qtd <= 0) { setErro('Informe a quantidade em kg.'); return; }
     if (todosFeitos) { setErro('Todos os tratos do dia já foram lançados.'); return; }
     setSalvando(true);
     try {
       const hoje = format(new Date(), 'yyyy-MM-dd');
-      await salvarTrato({
+      const novoTrato: Trato = {
         id: `${lote.id}_${hoje}_${tratoNum}_${Date.now()}`,
         loteId: lote.id,
         fazendaId: lote.fazendaId,
@@ -314,11 +318,29 @@ function ModalLancarTrato({ lote, tratosHoje, dietaHoje, usuario, onClose, onSal
         funcionarioId: usuario.uid,
         funcionarioNome: usuario.nome,
         criadoEm: new Date().toISOString(),
-      });
+      };
+      await salvarTrato(novoTrato);
       setSalvo(true);
       setTimeout(() => onSalvo(), 900);
     } catch {
       setErro('Erro ao salvar. Tente novamente.');
+      setSalvando(false);
+    }
+  }
+
+  async function confirmarEdicao(trato: Trato) {
+    const qtd = Math.ceil(Number(editQtd));
+    if (!qtd || qtd <= 0) { setErro('Informe uma quantidade válida.'); return; }
+    setErro('');
+    setSalvando(true);
+    try {
+      const atualizado = { ...trato, quantidadeEfetiva: qtd };
+      await salvarTrato(atualizado);
+      setTratos(prev => prev.map(t => t.id === trato.id ? atualizado : t));
+      setEditandoId(null);
+    } catch {
+      setErro('Erro ao editar. Tente novamente.');
+    } finally {
       setSalvando(false);
     }
   }
@@ -337,7 +359,7 @@ function ModalLancarTrato({ lote, tratosHoje, dietaHoje, usuario, onClose, onSal
           <button onClick={onClose} className="text-gray-400 text-2xl p-1 leading-none">✕</button>
         </div>
 
-        <div className="px-5 py-4">
+        <div className="px-5 py-4 max-h-[75vh] overflow-y-auto">
           {/* Resumo da dieta */}
           {dietaHoje && (
             <div className="flex gap-2 mb-4">
@@ -349,7 +371,7 @@ function ModalLancarTrato({ lote, tratosHoje, dietaHoje, usuario, onClose, onSal
                 <div className="flex-1 bg-blue-50 rounded-xl p-3 text-center">
                   <p className="text-xs text-gray-400">Por trato (~)</p>
                   <p className="text-lg font-extrabold text-blue-700">
-                    {Math.round(dietaHoje.quantidadeRecomendada / lote.numTratosDia)}kg
+                    {Math.ceil(dietaHoje.quantidadeRecomendada / lote.numTratosDia)}kg
                   </p>
                 </div>
               )}
@@ -362,13 +384,56 @@ function ModalLancarTrato({ lote, tratosHoje, dietaHoje, usuario, onClose, onSal
             </div>
           )}
 
-          {/* Tratos anteriores */}
-          {tratosHoje.length > 0 && (
-            <div className="space-y-1 mb-4">
-              {tratosHoje.sort((a, b) => a.numeroTrato - b.numeroTrato).map(t => (
-                <div key={t.id} className="flex justify-between bg-gray-50 rounded-xl px-3 py-2 text-sm">
-                  <span className="text-gray-500">Trato {t.numeroTrato} — {t.funcionarioNome}</span>
-                  <span className="font-bold text-gray-700">{t.quantidadeEfetiva}kg</span>
+          {/* Tratos registrados com edição inline */}
+          {tratos.length > 0 && (
+            <div className="space-y-1.5 mb-4">
+              <p className="text-xs font-bold text-gray-400">LANÇADOS HOJE</p>
+              {tratos.sort((a, b) => a.numeroTrato - b.numeroTrato).map(t => (
+                <div key={t.id}>
+                  {editandoId === t.id ? (
+                    <div className="flex items-center gap-2 bg-yellow-50 rounded-xl px-3 py-2">
+                      <span className="text-xs text-gray-500 flex-shrink-0">Trato {t.numeroTrato}</span>
+                      <input
+                        type="number"
+                        inputMode="numeric"
+                        value={editQtd}
+                        onChange={e => setEditQtd(e.target.value)}
+                        autoFocus
+                        className="flex-1 border border-yellow-400 rounded-lg px-2 py-1 text-sm font-bold text-center focus:outline-none focus:ring-2 focus:ring-yellow-300"
+                      />
+                      <span className="text-xs text-gray-400 flex-shrink-0">kg</span>
+                      <button
+                        onClick={() => confirmarEdicao(t)}
+                        disabled={salvando}
+                        className="bg-green-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg active:bg-green-700 disabled:opacity-60"
+                      >
+                        ✓
+                      </button>
+                      <button
+                        onClick={() => { setEditandoId(null); setErro(''); }}
+                        className="text-gray-400 text-xs px-2 py-1.5"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex justify-between items-center bg-gray-50 rounded-xl px-3 py-2 text-sm">
+                      <span className="text-gray-500">Trato {t.numeroTrato} — {t.funcionarioNome}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-gray-700">{t.quantidadeEfetiva}kg</span>
+                        <button
+                          onClick={() => { setEditandoId(t.id); setEditQtd(String(t.quantidadeEfetiva)); setErro(''); }}
+                          className="text-gray-300 active:text-gray-500 p-1"
+                          title="Editar"
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                            <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
+                            <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -382,26 +447,25 @@ function ModalLancarTrato({ lote, tratosHoje, dietaHoje, usuario, onClose, onSal
             </div>
           ) : !todosFeitos ? (
             <>
-              {/* Input principal */}
               <input
                 type="number"
+                inputMode="numeric"
                 value={quantidade}
                 onChange={e => setQuantidade(e.target.value)}
                 placeholder="0"
-                min="0"
+                min="1"
                 autoFocus
                 className="w-full border-2 border-green-500 rounded-2xl px-4 py-5 text-5xl font-extrabold text-green-700 text-center focus:outline-none focus:ring-4 focus:ring-green-200 bg-green-50 mb-2"
               />
               <p className="text-xs text-center text-gray-400 mb-4">kg neste trato</p>
 
-              {/* Atalhos inteligentes */}
-              {dietaHoje && (
+              {dietaHoje && sugestao > 0 && (
                 <div className="flex gap-2 mb-4">
                   {lote.numTratosDia > 1 ? (
                     [
-                      { label: '-10%', v: Math.round(sugestao * 0.9) },
+                      { label: '-10%', v: Math.ceil(sugestao * 0.9) },
                       { label: 'Sugerido', v: sugestao, destaque: true },
-                      { label: '+10%', v: Math.round(sugestao * 1.1) },
+                      { label: '+10%', v: Math.ceil(sugestao * 1.1) },
                     ].map(({ label, v, destaque }) => (
                       <button
                         key={label}
@@ -417,7 +481,7 @@ function ModalLancarTrato({ lote, tratosHoje, dietaHoje, usuario, onClose, onSal
                     ))
                   ) : (
                     [0.8, 0.9, 1.0].map(f => {
-                      const v = Math.round(dietaHoje.quantidadeRecomendada * f);
+                      const v = Math.ceil(dietaHoje.quantidadeRecomendada * f);
                       return (
                         <button
                           key={f}
@@ -436,7 +500,9 @@ function ModalLancarTrato({ lote, tratosHoje, dietaHoje, usuario, onClose, onSal
 
               {erro && <p className="text-red-500 text-sm text-center mb-2">{erro}</p>}
             </>
-          ) : null}
+          ) : (
+            erro ? <p className="text-red-500 text-sm text-center mb-2">{erro}</p> : null
+          )}
         </div>
 
         <div className="px-5 pb-6">
