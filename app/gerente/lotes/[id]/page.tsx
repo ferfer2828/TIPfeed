@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { getLote, getTratosByLote, getLeiturasCochoByLote, getDietaDias, getDietaDiaByData, getTratosByLoteData, salvarTrato } from '@/lib/firestore';
+import { getLote, getTratosByLote, getLeiturasCochoByLote, getDietaDias, getDietaDiaByData, getTratosByLoteData, salvarTrato, salvarLote } from '@/lib/firestore';
 import Link from 'next/link';
 import { format, differenceInDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -23,6 +23,14 @@ export default function LoteDetailPage() {
   const [erro, setErro] = useState('');
   const [aba, setAba] = useState<'tratos' | 'cocho'>('tratos');
   const [modalTrato, setModalTrato] = useState(false);
+
+  // Edição das informações do lote
+  const [editandoInfo, setEditandoInfo] = useState(false);
+  const [editDataInicio, setEditDataInicio] = useState('');
+  const [editPrevisaoAbate, setEditPrevisaoAbate] = useState('');
+  const [editPesoEntrada, setEditPesoEntrada] = useState('');
+  const [salvandoInfo, setSalvandoInfo] = useState(false);
+  const [erroInfo, setErroInfo] = useState('');
 
   const hoje = format(new Date(), 'yyyy-MM-dd');
 
@@ -49,6 +57,45 @@ export default function LoteDetailPage() {
     if (usuario) carregar();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, usuario]);
+
+  function abrirEdicaoInfo() {
+    if (!lote) return;
+    setEditDataInicio(lote.dataInicio);
+    setEditPrevisaoAbate(lote.previsaoAbate);
+    setEditPesoEntrada(String(lote.pesoEntrada));
+    setErroInfo('');
+    setEditandoInfo(true);
+  }
+
+  async function salvarInfo() {
+    if (!lote) return;
+    const peso = Math.round(Number(editPesoEntrada));
+    if (!editDataInicio || !editPrevisaoAbate || !peso || peso <= 0) {
+      setErroInfo('Preencha todos os campos corretamente.');
+      return;
+    }
+    if (editPrevisaoAbate <= editDataInicio) {
+      setErroInfo('Data de saída deve ser posterior à data de entrada.');
+      return;
+    }
+    setSalvandoInfo(true);
+    setErroInfo('');
+    try {
+      await salvarLote({
+        ...lote,
+        dataInicio: editDataInicio,
+        previsaoAbate: editPrevisaoAbate,
+        pesoEntrada: peso,
+        atualizadoEm: new Date().toISOString(),
+      });
+      setEditandoInfo(false);
+      carregar();
+    } catch {
+      setErroInfo('Erro ao salvar. Tente novamente.');
+    } finally {
+      setSalvandoInfo(false);
+    }
+  }
 
   if (carregando) return (
     <div className="flex h-full items-center justify-center bg-gray-50">
@@ -138,8 +185,109 @@ export default function LoteDetailPage() {
         </div>
       </div>
 
-      {/* Botão lançar trato */}
+      {/* Card de informações do lote */}
       <div className="px-4 pt-4">
+        {editandoInfo ? (
+          <div className="bg-white rounded-2xl shadow-sm p-4 mb-3">
+            <p className="text-xs font-bold text-gray-500 mb-3">EDITAR INFORMAÇÕES DO LOTE</p>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-gray-500 font-semibold block mb-1">Data de entrada</label>
+                <input
+                  type="date"
+                  value={editDataInicio}
+                  onChange={e => setEditDataInicio(e.target.value)}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 font-semibold block mb-1">Data prevista de saída</label>
+                <input
+                  type="date"
+                  value={editPrevisaoAbate}
+                  onChange={e => setEditPrevisaoAbate(e.target.value)}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 font-semibold block mb-1">Peso de entrada (kg)</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    value={editPesoEntrada}
+                    onChange={e => setEditPesoEntrada(e.target.value)}
+                    placeholder="450"
+                    min="1"
+                    className="flex-1 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  />
+                  <span className="text-gray-400 text-sm">kg</span>
+                </div>
+              </div>
+            </div>
+            {erroInfo && <p className="text-red-500 text-xs mt-2">{erroInfo}</p>}
+            <div className="flex gap-2 mt-4">
+              <button
+                onClick={() => setEditandoInfo(false)}
+                className="flex-1 bg-gray-100 text-gray-600 font-bold py-3 rounded-xl text-sm active:bg-gray-200"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={salvarInfo}
+                disabled={salvandoInfo}
+                className="flex-1 bg-green-700 text-white font-bold py-3 rounded-xl text-sm disabled:opacity-60 active:bg-green-800"
+              >
+                {salvandoInfo ? 'Salvando...' : 'Salvar'}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="bg-white rounded-2xl shadow-sm p-4 mb-3">
+            <div className="flex justify-between items-center mb-2.5">
+              <p className="text-xs font-bold text-gray-400">INFORMAÇÕES DO LOTE</p>
+              <button
+                onClick={abrirEdicaoInfo}
+                className="flex items-center gap-1 text-green-700 text-xs font-semibold active:opacity-70"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
+                  <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                </svg>
+                Editar
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-2.5">
+              <div>
+                <p className="text-xs text-gray-400">Data de entrada</p>
+                <p className="font-semibold text-gray-700 text-sm">
+                  {format(new Date(lote.dataInicio + 'T12:00:00'), 'dd/MM/yyyy')}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-400">Prev. saída</p>
+                <p className="font-semibold text-gray-700 text-sm">
+                  {format(new Date(lote.previsaoAbate + 'T12:00:00'), 'dd/MM/yyyy')}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-400">Peso de entrada</p>
+                <p className="font-semibold text-gray-700 text-sm">{lote.pesoEntrada} kg</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-400">Peso est. hoje</p>
+                <p className="font-semibold text-green-700 text-sm">
+                  {lote.pesoEntrada + (diasConfinamento - 1)} kg
+                </p>
+                <p className="text-xs text-gray-400">+1 kg/dia</p>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Botão lançar trato */}
+      <div className="px-4">
         <button
           onClick={() => setModalTrato(true)}
           className="w-full bg-green-700 text-white font-bold py-3.5 rounded-2xl active:bg-green-800 flex items-center justify-center gap-2"
