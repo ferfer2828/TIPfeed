@@ -134,7 +134,7 @@ export default function LoteDetailPage() {
   const tratosHoje = tratosPorData[hoje] ?? [];
   const totalKgHoje = tratosHoje.reduce((s, t) => s + t.quantidadeEfetiva, 0);
   const kgBoiDia = totalKgHoje > 0 && lote.quantidadeBois > 0
-    ? ((totalKgHoje / lote.quantidadeBois / 6) * 7).toFixed(1)
+    ? ((totalKgHoje / lote.quantidadeBois / 7) * 6).toFixed(1)
     : null;
 
   return (
@@ -317,7 +317,7 @@ export default function LoteDetailPage() {
                 const dietaDia = dietas.find(d => d.data === data);
                 const diff = dietaDia ? totalKg - dietaDia.quantidadeRecomendada : null;
                 const kgBD = lote.quantidadeBois > 0
-                  ? ((totalKg / lote.quantidadeBois / 6) * 7).toFixed(1)
+                  ? ((totalKg / lote.quantidadeBois / 7) * 6).toFixed(1)
                   : null;
                 return (
                   <div key={data} className="bg-white rounded-2xl shadow-sm p-4">

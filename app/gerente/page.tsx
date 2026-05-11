@@ -131,7 +131,7 @@ export default function GerentePainel() {
                 );
                 const totalKgHoje = tratosLote.reduce((s, t) => s + t.quantidadeEfetiva, 0);
                 const kgBoiDia = totalKgHoje > 0 && lote.quantidadeBois > 0
-                  ? ((totalKgHoje / lote.quantidadeBois / 6) * 7).toFixed(1)
+                  ? ((totalKgHoje / lote.quantidadeBois / 7) * 6).toFixed(1)
                   : null;
                 return (
                   <Link key={lote.id} href={`/gerente/lotes/${lote.id}`}>

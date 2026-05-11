@@ -297,7 +297,7 @@ function DietaPage() {
                       if (!isNaN(v) && v > 0 && lote.quantidadeBois > 0) {
                         return (
                           <p className={`text-xs font-semibold text-center mt-2 ${isManual ? 'text-orange-600' : 'text-green-600'}`}>
-                            ≈ {(v / lote.quantidadeBois / 6 * 7).toFixed(1)} kg/boi/dia
+                            ≈ {(v / lote.quantidadeBois / 7 * 6).toFixed(1)} kg/boi/dia
                           </p>
                         );
                       }
@@ -368,7 +368,7 @@ function DietaPage() {
                           if (!isNaN(v) && v > 0 && lote.quantidadeBois > 0) {
                             return (
                               <span className="text-green-600 text-xs font-semibold leading-tight">
-                                {(v / lote.quantidadeBois / 6 * 7).toFixed(1)}<br/>
+                                {(v / lote.quantidadeBois / 7 * 6).toFixed(1)}<br/>
                                 <span className="text-gray-400 font-normal">kg/b/d</span>
                               </span>
                             );
