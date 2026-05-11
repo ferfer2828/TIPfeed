@@ -9,6 +9,15 @@ export const metadata: Metadata = {
   title: 'TIPfeed',
   description: 'Gestão de trato em confinamento bovino',
   manifest: '/manifest.json',
+  icons: {
+    icon: [
+      { url: '/logo.png', type: 'image/png' },
+    ],
+    apple: [
+      { url: '/logo.png', type: 'image/png' },
+    ],
+    shortcut: '/logo.png',
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',

@@ -56,14 +56,34 @@ export interface LeituraCocho {
   criadoEm: string;
 }
 
+export const CATEGORIAS_INSUMO = [
+  { valor: 'volumoso',    label: 'Volumoso',    icon: '🌾' },
+  { valor: 'concentrado', label: 'Concentrado', icon: '🌽' },
+  { valor: 'mineral',     label: 'Mineral',     icon: '💊' },
+  { valor: 'outros',      label: 'Outros',      icon: '📦' },
+] as const;
+
+export type CategoriaInsumo = 'volumoso' | 'concentrado' | 'mineral' | 'outros';
+
 export interface Insumo {
   id: string;
   fazendaId: string;
   nome: string;
   unidade: string;
+  categoria: CategoriaInsumo;
   alertaAtivo: boolean;
   mensagemAlerta: string;
   atualizadoEm: string;
+}
+
+export interface Cotacao {
+  id: string;
+  insumoId: string;
+  fazendaId: string;
+  precoUnitario: number;
+  fornecedor: string;
+  data: string;
+  criadoEm: string;
 }
 
 export interface RecebimentoInsumo {

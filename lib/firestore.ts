@@ -3,7 +3,7 @@ import {
   query, where, updateDoc, writeBatch,
 } from 'firebase/firestore';
 import { db } from './firebase';
-import type { Lote, DietaDia, Trato, LeituraCocho, Insumo, RecebimentoInsumo } from '@/types';
+import type { Lote, DietaDia, Trato, LeituraCocho, Insumo, RecebimentoInsumo, Cotacao } from '@/types';
 
 // ─── Lotes ────────────────────────────────────────────────────────────────────
 
@@ -125,5 +125,27 @@ export async function getRecebimentos(insumoId: string): Promise<RecebimentoInsu
     query(collection(db, 'recebimentos_insumo'), where('insumoId', '==', insumoId))
   );
   return snap.docs.map(d => d.data() as RecebimentoInsumo)
+    .sort((a, b) => b.data.localeCompare(a.data));
+}
+
+// ─── Cotações ─────────────────────────────────────────────────────────────────
+
+export async function salvarCotacao(c: Cotacao) {
+  await setDoc(doc(db, 'cotacoes', c.id), c);
+}
+
+export async function getCotacoesByInsumo(insumoId: string): Promise<Cotacao[]> {
+  const snap = await getDocs(
+    query(collection(db, 'cotacoes'), where('insumoId', '==', insumoId))
+  );
+  return snap.docs.map(d => d.data() as Cotacao)
+    .sort((a, b) => b.data.localeCompare(a.data));
+}
+
+export async function getCotacoesByFazenda(fazendaId: string): Promise<Cotacao[]> {
+  const snap = await getDocs(
+    query(collection(db, 'cotacoes'), where('fazendaId', '==', fazendaId))
+  );
+  return snap.docs.map(d => d.data() as Cotacao)
     .sort((a, b) => b.data.localeCompare(a.data));
 }

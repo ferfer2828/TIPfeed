@@ -96,5 +96,12 @@ service cloud.firestore {
         && pertenceAFazenda(resource.data.fazendaId);
       allow create: if eGerenteDa(request.resource.data.fazendaId);
     }
+
+    // ── Cotações de Insumo ────────────────────────────────────────────────────
+    match /cotacoes/{cotId} {
+      allow read: if autenticado()
+        && pertenceAFazenda(resource.data.fazendaId);
+      allow create: if eGerenteDa(request.resource.data.fazendaId);
+    }
   }
 }
