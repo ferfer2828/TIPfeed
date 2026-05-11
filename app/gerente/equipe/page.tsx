@@ -13,6 +13,8 @@ export default function EquipePage() {
   const [gerando, setGerando] = useState(false);
   const [codigoGerado, setCodigoGerado] = useState<string | null>(null);
   const [erroConvite, setErroConvite] = useState('');
+  const [copiado, setCopiado] = useState(false);
+  const [copiadoId, setCopiadoId] = useState<string | null>(null);
   const [aba, setAba] = useState<'peoes' | 'convites'>('peoes');
 
   async function carregar() {
@@ -32,6 +34,25 @@ export default function EquipePage() {
   }
 
   useEffect(() => { carregar(); }, [usuario]);
+
+  function linkConvite(codigo: string) {
+    return `${window.location.origin}/convite/${codigo}`;
+  }
+
+  async function copiarLink(codigo: string, idRef?: string) {
+    try {
+      await navigator.clipboard.writeText(linkConvite(codigo));
+      if (idRef) {
+        setCopiadoId(idRef);
+        setTimeout(() => setCopiadoId(null), 2000);
+      } else {
+        setCopiado(true);
+        setTimeout(() => setCopiado(false), 2000);
+      }
+    } catch {
+      // fallback silencioso
+    }
+  }
 
   async function gerarConvite() {
     if (!usuario) return;
@@ -61,14 +82,14 @@ export default function EquipePage() {
         <div className="bg-white rounded-2xl shadow-sm p-4 mb-4">
           <h2 className="font-bold text-gray-800 mb-1">Convidar peão</h2>
           <p className="text-xs text-gray-400 mb-3">
-            Gere um código de 6 dígitos e passe ao peão. Válido por 7 dias.
+            Gere um link e compartilhe com o peão. Válido por 7 dias.
           </p>
           <button
             onClick={gerarConvite}
             disabled={gerando}
             className="w-full bg-green-700 text-white font-bold py-3 rounded-xl disabled:opacity-60 active:bg-green-800"
           >
-            {gerando ? 'Gerando...' : '+ Gerar código de convite'}
+            {gerando ? 'Gerando...' : '+ Gerar link de convite'}
           </button>
 
           {erroConvite && (
@@ -78,17 +99,23 @@ export default function EquipePage() {
           )}
 
           {codigoGerado && (
-            <div className="mt-4 bg-green-50 border-2 border-green-400 rounded-2xl p-4 text-center">
-              <p className="text-xs text-green-600 font-semibold mb-2">CÓDIGO GERADO</p>
-              <p className="text-5xl font-extrabold text-green-700 tracking-widest">
-                {codigoGerado}
+            <div className="mt-4 bg-green-50 border-2 border-green-400 rounded-2xl p-4">
+              <p className="text-xs text-green-600 font-semibold mb-2 text-center">🔗 LINK GERADO</p>
+              <p className="text-xs text-gray-600 break-all bg-white border border-green-200 rounded-xl px-3 py-2 mb-3 font-mono">
+                {linkConvite(codigoGerado)}
               </p>
-              <p className="text-xs text-green-600 mt-2">
-                Passe este código para o peão se cadastrar no app
+              <button
+                onClick={() => copiarLink(codigoGerado)}
+                className="w-full bg-green-700 text-white font-bold py-2.5 rounded-xl active:bg-green-800 text-sm"
+              >
+                {copiado ? '✓ Copiado!' : '📋 Copiar link'}
+              </button>
+              <p className="text-xs text-green-600 mt-2 text-center">
+                Envie este link ao peão para ele se cadastrar
               </p>
               <button
                 onClick={() => setCodigoGerado(null)}
-                className="mt-3 text-xs text-gray-400 underline"
+                className="mt-2 w-full text-xs text-gray-400 underline"
               >
                 Fechar
               </button>
@@ -147,8 +174,8 @@ export default function EquipePage() {
                 const status = c.usado ? 'usado' : expirado ? 'expirado' : 'ativo';
                 return (
                   <div key={c.codigo} className="bg-white rounded-2xl shadow-sm p-4">
-                    <div className="flex justify-between items-center">
-                      <p className="font-extrabold text-gray-800 text-xl tracking-widest">{c.codigo}</p>
+                    <div className="flex justify-between items-center mb-1">
+                      <p className="font-bold text-gray-700 text-xs tracking-widest font-mono">{c.codigo}</p>
                       <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${
                         status === 'ativo' ? 'bg-green-100 text-green-700' :
                         status === 'usado' ? 'bg-blue-100 text-blue-700' :
@@ -157,13 +184,21 @@ export default function EquipePage() {
                         {status === 'ativo' ? '✓ Ativo' : status === 'usado' ? '✓ Usado' : '✕ Expirado'}
                       </span>
                     </div>
-                    <p className="text-xs text-gray-400 mt-1">
+                    <p className="text-xs text-gray-400">
                       Criado em {format(new Date(c.criadoEm), "dd/MM/yyyy 'às' HH:mm")}
                     </p>
                     {!c.usado && !expirado && (
-                      <p className="text-xs text-orange-500 mt-0.5">
-                        Expira em {format(new Date(c.expiresAt), "dd/MM/yyyy")}
-                      </p>
+                      <>
+                        <p className="text-xs text-orange-500 mt-0.5">
+                          Expira em {format(new Date(c.expiresAt), "dd/MM/yyyy")}
+                        </p>
+                        <button
+                          onClick={() => copiarLink(c.codigo, c.codigo)}
+                          className="mt-2 w-full border border-green-600 text-green-700 text-xs font-bold py-2 rounded-xl active:bg-green-50"
+                        >
+                          {copiadoId === c.codigo ? '✓ Copiado!' : '📋 Copiar link'}
+                        </button>
+                      </>
                     )}
                   </div>
                 );

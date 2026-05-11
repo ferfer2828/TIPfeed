@@ -282,6 +282,17 @@ export default function LoteDetailPage() {
                 <p className="text-xs text-gray-400">+1 kg/dia</p>
               </div>
             </div>
+            <div className="mt-2.5 pt-2.5 border-t border-gray-100 flex justify-between items-center">
+              <div>
+                <p className="text-xs text-gray-400">Peso prev. no abate</p>
+                <p className="text-xs text-gray-400">
+                  {lote.pesoEntrada} kg + {totalDias} dias
+                </p>
+              </div>
+              <p className="font-extrabold text-blue-700 text-lg">
+                {lote.pesoEntrada + totalDias} kg
+              </p>
+            </div>
           </div>
         )}
       </div>
