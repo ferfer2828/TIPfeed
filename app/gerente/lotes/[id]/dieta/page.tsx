@@ -292,6 +292,17 @@ function DietaPage() {
                       />
                       <span className="text-gray-400 font-semibold">kg/dia</span>
                     </div>
+                    {(() => {
+                      const v = parseFloat(periodos[i]?.kg ?? '');
+                      if (!isNaN(v) && v > 0 && lote.quantidadeBois > 0) {
+                        return (
+                          <p className={`text-xs font-semibold text-center mt-2 ${isManual ? 'text-orange-600' : 'text-green-600'}`}>
+                            ≈ {(v / lote.quantidadeBois / 6 * 7).toFixed(1)} kg/boi/dia
+                          </p>
+                        );
+                      }
+                      return null;
+                    })()}
                   </div>
                 );
               })}
@@ -350,7 +361,21 @@ function DietaPage() {
                         className={`flex-1 border rounded-xl px-3 py-2.5 text-sm text-right font-bold focus:outline-none focus:ring-2 focus:ring-green-500
                           ${d.editado ? 'border-blue-300 bg-blue-50' : isHoje ? 'border-green-400 bg-white' : 'border-gray-200 bg-white'}`}
                       />
-                      <span className="text-gray-400 text-sm flex-shrink-0">kg</span>
+                      <div className="flex-shrink-0 text-right w-14">
+                        <span className="text-gray-400 text-sm block">kg</span>
+                        {(() => {
+                          const v = parseFloat(d.kg);
+                          if (!isNaN(v) && v > 0 && lote.quantidadeBois > 0) {
+                            return (
+                              <span className="text-green-600 text-xs font-semibold leading-tight">
+                                {(v / lote.quantidadeBois / 6 * 7).toFixed(1)}<br/>
+                                <span className="text-gray-400 font-normal">kg/b/d</span>
+                              </span>
+                            );
+                          }
+                          return null;
+                        })()}
+                      </div>
                     </div>
                   </div>
                 );
