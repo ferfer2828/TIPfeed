@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { getLote, getTratosByLote, getLeiturasCochoByLote, getDietaDias, getDietaDiaByData, getTratosByLoteData, salvarTrato, salvarLote } from '@/lib/firestore';
 import Link from 'next/link';
-import { format, differenceInDays } from 'date-fns';
+import { format, differenceInDays, addDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import type { Lote, Trato, LeituraCocho, DietaDia } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
@@ -21,7 +21,7 @@ export default function LoteDetailPage() {
   const [dietas, setDietas] = useState<DietaDia[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState('');
-  const [aba, setAba] = useState<'tratos' | 'cocho'>('tratos');
+  const [aba, setAba] = useState<'tratos' | 'cocho' | 'grafico'>('tratos');
   const [modalTrato, setModalTrato] = useState(false);
 
   // Edição das informações do lote
@@ -310,16 +310,18 @@ export default function LoteDetailPage() {
 
       {/* Abas */}
       <div className="flex bg-white border-b border-gray-200 mt-4">
-        {(['tratos', 'cocho'] as const).map(a => (
+        {([['tratos', '🌾 Tratos'], ['cocho', '📊 Cocho'], ['grafico', '📈 Gráfico']] as const).map(([a, label]) => (
           <button key={a} onClick={() => setAba(a)}
-            className={`flex-1 py-3 text-sm font-bold border-b-2 transition ${aba === a ? 'text-green-700 border-green-700' : 'text-gray-400 border-transparent'}`}>
-            {a === 'tratos' ? '🌾 Tratos' : '📊 Cocho'}
+            className={`flex-1 py-3 text-xs font-bold border-b-2 transition ${aba === a ? 'text-green-700 border-green-700' : 'text-gray-400 border-transparent'}`}>
+            {label}
           </button>
         ))}
       </div>
 
       <div className="px-4 py-4">
-        {aba === 'tratos' ? (
+        {aba === 'grafico' ? (
+          <GraficoTrato tratos={tratos} dietas={dietas} lote={lote} />
+        ) : aba === 'tratos' ? (
           datas.length === 0 ? <p className="text-center text-gray-400 py-10">Nenhum trato registrado</p> : (
             <div className="space-y-4">
               {datas.map(data => {
@@ -514,6 +516,244 @@ function ModalLancarTrato({ lote, tratosHoje, dietaHoje, usuario, onClose, onSal
               {salvando ? 'Salvando...' : '🌾 Confirmar trato'}
             </button>
           )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Gráfico Realizado × Previsto ─────────────────────────────────────────────
+
+function GraficoTrato({ tratos, dietas, lote }: {
+  tratos: Trato[];
+  dietas: DietaDia[];
+  lote: Lote;
+}) {
+  const hoje = format(new Date(), 'yyyy-MM-dd');
+
+  // Intervalo de datas: início do lote até hoje (máximo até previsão)
+  const dataFim = hoje <= lote.previsaoAbate ? hoje : lote.previsaoAbate;
+  const start = new Date(lote.dataInicio + 'T12:00:00');
+  const end = new Date(dataFim + 'T12:00:00');
+  const totalDias = differenceInDays(end, start) + 1;
+  const MAX_DIAS = 45;
+  const showDias = Math.min(totalDias, MAX_DIAS);
+  const fromDate = showDias < totalDias ? addDays(end, -(showDias - 1)) : start;
+
+  // Mapas para lookup rápido
+  const dietaMap = new Map(dietas.map(d => [d.data, d.quantidadeRecomendada]));
+  const tratosMap = new Map<string, number>();
+  for (const t of tratos) {
+    tratosMap.set(t.data, (tratosMap.get(t.data) ?? 0) + t.quantidadeEfetiva);
+  }
+
+  // Pontos do gráfico
+  const pontos = Array.from({ length: showDias }, (_, i) => {
+    const d = addDays(fromDate, i);
+    const dateStr = format(d, 'yyyy-MM-dd');
+    return {
+      date: dateStr,
+      previsto: dietaMap.get(dateStr) ?? null as number | null,
+      realizado: tratosMap.get(dateStr) ?? null as number | null,
+    };
+  });
+
+  const allVals = pontos.flatMap(p => [p.previsto ?? 0, p.realizado ?? 0]).filter(v => v > 0);
+  if (allVals.length === 0) {
+    return (
+      <div className="text-center py-14">
+        <p className="text-3xl mb-2">📈</p>
+        <p className="text-gray-400 font-semibold">Nenhum dado registrado ainda</p>
+        <p className="text-gray-400 text-sm mt-1">Lance tratos para ver o gráfico</p>
+      </div>
+    );
+  }
+
+  // Escala Y — arredonda para múltiplo "bonito"
+  const rawMax = Math.max(...allVals);
+  const mag = Math.pow(10, Math.floor(Math.log10(rawMax)));
+  const maxY = Math.ceil((rawMax * 1.15) / (mag / 2)) * (mag / 2);
+
+  // Dimensões SVG
+  const W = 340, H = 180;
+  const ML = 40, MR = 10, MT = 12, MB = 26;
+  const plotW = W - ML - MR;
+  const plotH = H - MT - MB;
+  const n = pontos.length;
+
+  const toX = (i: number) => ML + (n > 1 ? (i / (n - 1)) * plotW : plotW / 2);
+  const toY = (v: number) => MT + (1 - v / maxY) * plotH;
+
+  // Constrói path SVG para uma série (lacunas em null)
+  function buildPath(key: 'previsto' | 'realizado') {
+    let d = '';
+    let started = false;
+    for (let i = 0; i < pontos.length; i++) {
+      const v = pontos[i][key];
+      if (v === null) { started = false; continue; }
+      const x = toX(i).toFixed(1), y = toY(v).toFixed(1);
+      d += started ? ` L ${x} ${y}` : `M ${x} ${y}`;
+      started = true;
+    }
+    return d;
+  }
+
+  // Área preenchida sob a linha "realizado"
+  function buildFill() {
+    const pts = pontos
+      .map((p, i) => p.realizado !== null ? { x: toX(i), y: toY(p.realizado) } : null)
+      .filter((p): p is { x: number; y: number } => p !== null);
+    if (pts.length < 2) return '';
+    const base = toY(0).toFixed(1);
+    let d = `M ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`;
+    for (let i = 1; i < pts.length; i++) d += ` L ${pts[i].x.toFixed(1)} ${pts[i].y.toFixed(1)}`;
+    d += ` L ${pts[pts.length - 1].x.toFixed(1)} ${base} L ${pts[0].x.toFixed(1)} ${base} Z`;
+    return d;
+  }
+
+  // Rótulos eixo Y (3 valores)
+  const yLabels = [0, maxY / 2, maxY].map(v => ({ val: v, y: toY(v) }));
+  const fmtY = (v: number) => v >= 1000 ? `${(v / 1000).toFixed(v % 1000 === 0 ? 0 : 1)}t` : String(Math.round(v));
+
+  // Rótulos eixo X (máx 3, sem repetição)
+  const xIdxs = [...new Set([0, Math.round((n - 1) / 2), n - 1])];
+  const xLabels = xIdxs.map(i => ({
+    i, x: toX(i),
+    label: format(new Date(pontos[i].date + 'T12:00:00'), 'dd/MM'),
+  }));
+
+  // Paths calculados uma vez
+  const pathRealizado = buildPath('realizado');
+  const pathPrevisto = buildPath('previsto');
+  const fillRealizado = buildFill();
+
+  // Estatísticas resumo
+  const realizadoVals = pontos.filter(p => p.realizado !== null).map(p => p.realizado!);
+  const previsoVals = pontos.filter(p => p.previsto !== null).map(p => p.previsto!);
+  const mediaRealizado = realizadoVals.length
+    ? Math.round(realizadoVals.reduce((a, b) => a + b, 0) / realizadoVals.length) : null;
+  const mediaPrevisto = previsoVals.length
+    ? Math.round(previsoVals.reduce((a, b) => a + b, 0) / previsoVals.length) : null;
+  const aderencia = mediaRealizado && mediaPrevisto
+    ? Math.round((mediaRealizado / mediaPrevisto) * 100) : null;
+  const totalRealizado = realizadoVals.reduce((a, b) => a + b, 0);
+
+  return (
+    <div className="space-y-3">
+      {/* Gráfico */}
+      <div className="bg-white rounded-2xl shadow-sm p-4">
+        <div className="flex items-center justify-between mb-1">
+          <p className="text-xs font-bold text-gray-400 tracking-wide">KG/DIA — REALIZADO × PREVISTO</p>
+          {showDias < totalDias && (
+            <p className="text-xs text-gray-400">Últimos {showDias} dias</p>
+          )}
+        </div>
+
+        {/* Legenda */}
+        <div className="flex gap-5 mb-3">
+          <div className="flex items-center gap-1.5">
+            <svg width="20" height="8">
+              <path d="M0 4 L20 4" stroke="#16a34a" strokeWidth="2.5" strokeLinecap="round" />
+            </svg>
+            <span className="text-xs text-gray-500">Realizado</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <svg width="20" height="8">
+              <path d="M0 4 L20 4" stroke="#3b82f6" strokeWidth="2" strokeDasharray="4 2" />
+            </svg>
+            <span className="text-xs text-gray-500">Previsto (dieta)</span>
+          </div>
+        </div>
+
+        <svg viewBox={`0 0 ${W} ${H}`} className="w-full">
+          {/* Linhas de grade + rótulos Y */}
+          {yLabels.map(({ val, y }) => (
+            <g key={val}>
+              <line x1={ML} y1={y.toFixed(1)} x2={W - MR} y2={y.toFixed(1)}
+                stroke={val === 0 ? '#e5e7eb' : '#f3f4f6'} strokeWidth="1" />
+              <text x={ML - 4} y={(y + 3.5).toFixed(1)} textAnchor="end" fontSize="9" fill="#9ca3af">
+                {fmtY(val)}
+              </text>
+            </g>
+          ))}
+
+          {/* Rótulos X */}
+          {xLabels.map(({ i, x, label }) => (
+            <text key={i} x={x.toFixed(1)} y={H - 5} textAnchor="middle" fontSize="9" fill="#9ca3af">
+              {label}
+            </text>
+          ))}
+
+          {/* Área realizado */}
+          {fillRealizado && (
+            <path d={fillRealizado} fill="#16a34a" fillOpacity="0.08" />
+          )}
+
+          {/* Linha previsto (tracejada) */}
+          {pathPrevisto && (
+            <path d={pathPrevisto} fill="none" stroke="#3b82f6"
+              strokeWidth="1.5" strokeDasharray="4 2" opacity="0.8" />
+          )}
+
+          {/* Linha realizado */}
+          {pathRealizado && (
+            <path d={pathRealizado} fill="none" stroke="#16a34a"
+              strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+          )}
+
+          {/* Pontos */}
+          {pontos.map((p, i) => (
+            <g key={p.date}>
+              {p.previsto !== null && (
+                <circle cx={toX(i).toFixed(1)} cy={toY(p.previsto).toFixed(1)}
+                  r="2.5" fill="white" stroke="#3b82f6" strokeWidth="1.5" />
+              )}
+              {p.realizado !== null && (
+                <circle cx={toX(i).toFixed(1)} cy={toY(p.realizado).toFixed(1)}
+                  r="3.5" fill="#16a34a" />
+              )}
+            </g>
+          ))}
+        </svg>
+      </div>
+
+      {/* Cards de resumo */}
+      <div className="grid grid-cols-2 gap-2">
+        <div className="bg-white rounded-2xl shadow-sm p-3 text-center">
+          <p className="text-xs text-gray-400">Média realizado/dia</p>
+          <p className="font-extrabold text-green-700 text-2xl mt-0.5">{mediaRealizado ?? '—'}</p>
+          <p className="text-xs text-gray-400">kg</p>
+        </div>
+        <div className="bg-white rounded-2xl shadow-sm p-3 text-center">
+          <p className="text-xs text-gray-400">Média previsto/dia</p>
+          <p className="font-extrabold text-blue-600 text-2xl mt-0.5">{mediaPrevisto ?? '—'}</p>
+          <p className="text-xs text-gray-400">kg</p>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="bg-white rounded-2xl shadow-sm p-3 text-center">
+          <p className="text-xs text-gray-400">Total realizado</p>
+          <p className="font-extrabold text-gray-800 text-2xl mt-0.5">
+            {totalRealizado >= 1000 ? `${(totalRealizado / 1000).toFixed(1)}t` : `${totalRealizado}`}
+          </p>
+          <p className="text-xs text-gray-400">no período</p>
+        </div>
+        <div className={`rounded-2xl shadow-sm p-3 text-center ${
+          aderencia === null ? 'bg-white' :
+          aderencia >= 90 ? 'bg-green-50' :
+          aderencia >= 70 ? 'bg-yellow-50' : 'bg-red-50'
+        }`}>
+          <p className="text-xs text-gray-400">Aderência à dieta</p>
+          <p className={`font-extrabold text-2xl mt-0.5 ${
+            aderencia === null ? 'text-gray-400' :
+            aderencia >= 90 ? 'text-green-700' :
+            aderencia >= 70 ? 'text-yellow-600' : 'text-red-600'
+          }`}>
+            {aderencia !== null ? `${aderencia}%` : '—'}
+          </p>
+          <p className="text-xs text-gray-400">
+            {aderencia !== null ? (aderencia >= 90 ? 'Ótimo' : aderencia >= 70 ? 'Regular' : 'Abaixo') : '—'}
+          </p>
         </div>
       </div>
     </div>
