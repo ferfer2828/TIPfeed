@@ -4,12 +4,13 @@ import { useAuth } from '@/contexts/AuthContext';
 import {
   getInsumos, salvarInsumo, getRecebimentos, salvarRecebimento,
   getCotacoesByInsumo, salvarCotacao,
+  getDietaFazenda, salvarDietaFazenda, getLotes, getDietaDias,
 } from '@/lib/firestore';
-import { format } from 'date-fns';
-import type { Insumo, RecebimentoInsumo, Cotacao, CategoriaInsumo } from '@/types';
+import { format, differenceInDays } from 'date-fns';
+import type { Insumo, RecebimentoInsumo, Cotacao, CategoriaInsumo, ComposicaoItem, DietaFazenda, Lote, DietaDia } from '@/types';
 import { CATEGORIAS_INSUMO } from '@/types';
 
-type Aba = 'insumos' | 'cotacoes';
+type Aba = 'insumos' | 'cotacoes' | 'dieta';
 type Modal =
   | null
   | 'novoInsumo'
@@ -59,6 +60,7 @@ export default function InsumosPage() {
           {([
             { key: 'insumos', label: 'Estoque' },
             { key: 'cotacoes', label: 'Cotações' },
+            { key: 'dieta', label: '🌿 Dieta' },
           ] as { key: Aba; label: string }[]).map(t => (
             <button
               key={t.key}
@@ -162,6 +164,9 @@ export default function InsumosPage() {
               + Novo insumo
             </button>
           </>
+        ) : aba === 'dieta' ? (
+          /* ─── Aba Dieta da Fazenda ─── */
+          <AbaDietaFazenda insumos={insumos} fazendaId={usuario!.fazendaId} />
         ) : (
           /* ─── Aba Cotações ─── */
           <>
@@ -791,6 +796,382 @@ function ModalCotacao({ insumo, fazendaId, onClose }: {
         )}
       </div>
     </ModalBase>
+  );
+}
+
+// ─── Aba Dieta da Fazenda ─────────────────────────────────────────────────────
+
+function AbaDietaFazenda({ insumos, fazendaId }: { insumos: Insumo[]; fazendaId: string }) {
+  const [ganhoDiario, setGanhoDiario] = useState('0.8');
+  const [composicao, setComposicao] = useState<ComposicaoItem[]>([]);
+  const [carregando, setCarregando] = useState(true);
+  const [salvando, setSalvando] = useState(false);
+  const [salvo, setSalvo] = useState(false);
+  const [erro, setErro] = useState('');
+
+  // Lotes e DietaDias para previsão
+  const [lotes, setLotes] = useState<Lote[]>([]);
+  const [dietasDias, setDietasDias] = useState<Record<string, DietaDia[]>>({});
+
+  // Formulário de novo item
+  const [novoInsumoId, setNovoInsumoId] = useState('');
+  const [novoPercentual, setNovoPercentual] = useState('');
+  const [novoPrecoKg, setNovoPrecoKg] = useState('');
+  const [editandoIdx, setEditandoIdx] = useState<number | null>(null);
+
+  const hoje = new Date();
+
+  useEffect(() => {
+    Promise.all([
+      getDietaFazenda(fazendaId),
+      getLotes(fazendaId),
+    ]).then(async ([d, lots]) => {
+      if (d) {
+        setGanhoDiario(String(d.ganhoDiarioEsperado));
+        setComposicao(d.composicao);
+      }
+      setLotes(lots);
+      // Carrega DietaDias de cada lote para cálculo de custo total
+      const entradas = await Promise.all(
+        lots.map(async lote => {
+          try {
+            const dias = await getDietaDias(lote.id, fazendaId);
+            return { id: lote.id, dias };
+          } catch { return { id: lote.id, dias: [] }; }
+        })
+      );
+      const dict: Record<string, DietaDia[]> = {};
+      entradas.forEach(({ id, dias }) => { dict[id] = dias; });
+      setDietasDias(dict);
+    }).catch(e => console.error(e))
+      .finally(() => setCarregando(false));
+  }, [fazendaId]);
+
+  const totalPercentual = composicao.reduce((s, c) => s + c.percentual, 0);
+  // Custo por kg de ração mista = Σ (% / 100) × preço/kg de cada ingrediente
+  const custoRacaoKg = composicao.reduce((s, c) => s + (c.percentual / 100) * c.precoKg, 0);
+
+  function adicionarItem() {
+    const insumo = insumos.find(i => i.id === novoInsumoId);
+    if (!insumo || !novoPercentual || !novoPrecoKg) return;
+    const item: ComposicaoItem = {
+      insumoId: insumo.id,
+      insumoNome: insumo.nome,
+      percentual: Number(novoPercentual),
+      precoKg: Number(novoPrecoKg),
+      unidade: insumo.unidade,
+    };
+    setComposicao(prev => {
+      const semDuplicata = prev.filter(c => c.insumoId !== item.insumoId);
+      return editandoIdx !== null
+        ? semDuplicata.splice(editandoIdx, 0, item) && semDuplicata
+        : [...semDuplicata, item];
+    });
+    setNovoInsumoId('');
+    setNovoPercentual('');
+    setNovoPrecoKg('');
+    setEditandoIdx(null);
+  }
+
+  function iniciarEdicaoItem(idx: number) {
+    const item = composicao[idx];
+    setNovoInsumoId(item.insumoId);
+    setNovoPercentual(String(item.percentual));
+    setNovoPrecoKg(String(item.precoKg));
+    setEditandoIdx(idx);
+  }
+
+  function removerItem(idx: number) {
+    setComposicao(prev => prev.filter((_, i) => i !== idx));
+    if (editandoIdx === idx) { setNovoInsumoId(''); setNovoPercentual(''); setNovoPrecoKg(''); setEditandoIdx(null); }
+  }
+
+  async function salvar() {
+    setErro('');
+    if (!ganhoDiario || Number(ganhoDiario) <= 0) { setErro('Informe o ganho diário esperado.'); return; }
+    setSalvando(true);
+    try {
+      const d: DietaFazenda = {
+        id: fazendaId,
+        fazendaId,
+        ganhoDiarioEsperado: Number(ganhoDiario),
+        composicao,
+        atualizadoEm: new Date().toISOString(),
+      };
+      await salvarDietaFazenda(d);
+      setSalvo(true);
+      setTimeout(() => setSalvo(false), 2500);
+    } catch { setErro('Erro ao salvar. Tente novamente.'); }
+    finally { setSalvando(false); }
+  }
+
+  if (carregando) {
+    return <p className="text-center text-gray-400 py-10">Carregando...</p>;
+  }
+
+  const ganho = Number(ganhoDiario) || 0;
+  const percentualOk = Math.abs(totalPercentual - 100) < 0.5;
+
+  return (
+    <div className="space-y-4 pb-6">
+
+      {/* ── Ganho diário esperado ── */}
+      <div className="bg-white rounded-2xl shadow-sm p-4">
+        <p className="text-xs font-bold text-green-700 tracking-widest mb-3">GANHO DIÁRIO ESPERADO</p>
+        <div className="flex items-center gap-3">
+          <input
+            type="number"
+            value={ganhoDiario}
+            onChange={e => setGanhoDiario(e.target.value)}
+            step="0.05"
+            min="0"
+            placeholder="Ex: 0.8"
+            className="flex-1 border border-gray-200 rounded-xl px-3 py-3 text-2xl font-extrabold text-green-700 text-center focus:outline-none focus:ring-2 focus:ring-green-500"
+          />
+          <span className="text-sm text-gray-500 flex-shrink-0">kg/animal<br/>por dia</span>
+        </div>
+        <p className="text-xs text-gray-400 mt-2">
+          Usado para calcular a previsão de peso atual e final de cada lote
+        </p>
+      </div>
+
+      {/* ── Composição da ração ── */}
+      <div className="bg-white rounded-2xl shadow-sm p-4">
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-xs font-bold text-green-700 tracking-widest">COMPOSIÇÃO DA RAÇÃO</p>
+          <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+            percentualOk ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'
+          }`}>
+            {totalPercentual.toFixed(1)}% de 100%
+          </span>
+        </div>
+
+        {composicao.length === 0 ? (
+          <p className="text-sm text-gray-400 text-center py-3">Nenhum ingrediente ainda</p>
+        ) : (
+          <div className="space-y-2 mb-4">
+            {composicao.map((item, idx) => {
+              const custoContrib = (item.percentual / 100) * item.precoKg;
+              return (
+                <div key={item.insumoId} className="flex items-center gap-2 bg-gray-50 rounded-xl px-3 py-2.5">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-gray-700 truncate">{item.insumoNome}</p>
+                    <p className="text-xs text-gray-400">
+                      R$ {item.precoKg.toFixed(3)}/{item.unidade === 'kg' ? 'kg' : `kg (informado)`}
+                    </p>
+                  </div>
+                  <div className="text-right flex-shrink-0 mr-2">
+                    <p className="text-sm font-bold text-green-700">{item.percentual}%</p>
+                    <p className="text-xs text-gray-400">≈ R${custoContrib.toFixed(3)}/kg ração</p>
+                  </div>
+                  <div className="flex gap-1 flex-shrink-0">
+                    <button
+                      onClick={() => iniciarEdicaoItem(idx)}
+                      className="w-7 h-7 flex items-center justify-center bg-gray-100 rounded-lg active:bg-gray-200"
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                        <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
+                        <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                      </svg>
+                    </button>
+                    <button
+                      onClick={() => removerItem(idx)}
+                      className="w-7 h-7 flex items-center justify-center bg-red-50 rounded-lg active:bg-red-100 text-red-400"
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                        <path d="M18 6L6 18M6 6l12 12"/>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Formulário adicionar/editar */}
+        <div className={`rounded-xl p-3 space-y-2 ${editandoIdx !== null ? 'bg-amber-50 border border-amber-200' : 'bg-gray-50'}`}>
+          <p className="text-xs font-semibold text-gray-500">
+            {editandoIdx !== null ? `✏️ Editando: ${composicao[editandoIdx]?.insumoNome}` : 'Adicionar ingrediente'}
+          </p>
+          <select
+            value={novoInsumoId}
+            onChange={e => setNovoInsumoId(e.target.value)}
+            className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 bg-white"
+          >
+            <option value="">Selecionar insumo...</option>
+            {insumos
+              .filter(i => !composicao.find(c => c.insumoId === i.id) || composicao[editandoIdx ?? -1]?.insumoId === i.id)
+              .map(i => (
+                <option key={i.id} value={i.id}>{i.nome} ({i.unidade})</option>
+              ))}
+          </select>
+          <div className="flex gap-2">
+            <div className="flex-1">
+              <label className="block text-xs text-gray-400 mb-1">% na ração</label>
+              <input
+                type="number"
+                value={novoPercentual}
+                onChange={e => setNovoPercentual(e.target.value)}
+                placeholder="Ex: 60"
+                min="0" max="100" step="0.5"
+                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+              />
+            </div>
+            <div className="flex-1">
+              <label className="block text-xs text-gray-400 mb-1">
+                R$/kg{novoInsumoId && insumos.find(i => i.id === novoInsumoId)?.unidade !== 'kg'
+                  ? ` (converta de ${insumos.find(i => i.id === novoInsumoId)?.unidade})`
+                  : ''}
+              </label>
+              <input
+                type="number"
+                value={novoPrecoKg}
+                onChange={e => setNovoPrecoKg(e.target.value)}
+                placeholder="Ex: 0.85"
+                min="0" step="0.001"
+                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+              />
+            </div>
+          </div>
+          {/* Dica de conversão */}
+          {novoInsumoId && (() => {
+            const u = insumos.find(i => i.id === novoInsumoId)?.unidade;
+            if (u === 'ton') return <p className="text-xs text-blue-500">💡 Tonelada: R$/ton ÷ 1000 = R$/kg</p>;
+            if (u === 'sc') return <p className="text-xs text-blue-500">💡 Saca 60kg: R$/sc ÷ 60 = R$/kg</p>;
+            return null;
+          })()}
+          <div className="flex gap-2">
+            <button
+              onClick={adicionarItem}
+              disabled={!novoInsumoId || !novoPercentual || !novoPrecoKg}
+              className="flex-1 bg-green-700 text-white font-bold py-2.5 rounded-xl text-sm disabled:opacity-40 active:bg-green-800"
+            >
+              {editandoIdx !== null ? 'Atualizar' : '+ Adicionar'}
+            </button>
+            {editandoIdx !== null && (
+              <button
+                onClick={() => { setEditandoIdx(null); setNovoInsumoId(''); setNovoPercentual(''); setNovoPrecoKg(''); }}
+                className="px-4 bg-gray-100 text-gray-600 font-semibold py-2.5 rounded-xl text-sm"
+              >
+                Cancelar
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Custo calculado da ração ── */}
+      {composicao.length > 0 && (
+        <div className="bg-white rounded-2xl shadow-sm p-4">
+          <p className="text-xs font-bold text-green-700 tracking-widest mb-3">CUSTO DA RAÇÃO</p>
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-sm text-gray-600">Custo por kg de ração mista</p>
+            <p className="text-2xl font-extrabold text-green-700">
+              R$ {custoRacaoKg.toFixed(3)}<span className="text-sm font-normal text-gray-400">/kg</span>
+            </p>
+          </div>
+          {!percentualOk && (
+            <div className="bg-orange-50 border border-orange-200 rounded-xl px-3 py-2">
+              <p className="text-xs text-orange-700">
+                ⚠️ Composição soma {totalPercentual.toFixed(1)}% — ajuste para somar 100% para custo preciso
+              </p>
+            </div>
+          )}
+          {/* Detalhamento por ingrediente */}
+          <div className="mt-3 space-y-1.5">
+            <p className="text-xs font-semibold text-gray-400">Custo por ingrediente</p>
+            {composicao.map(item => (
+              <div key={item.insumoId} className="flex justify-between text-xs">
+                <span className="text-gray-600">{item.insumoNome} ({item.percentual}%)</span>
+                <span className="font-semibold text-gray-700">
+                  R$ {((item.percentual / 100) * item.precoKg).toFixed(3)}/kg ração
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Previsão por lote ── */}
+      {lotes.length > 0 && ganho > 0 && (
+        <div className="bg-white rounded-2xl shadow-sm p-4">
+          <p className="text-xs font-bold text-green-700 tracking-widest mb-3">PREVISÃO POR LOTE</p>
+          <div className="space-y-4">
+            {lotes.map(lote => {
+              const diasConfinamento = differenceInDays(hoje, new Date(lote.dataInicio)) + 1;
+              const totalDias = differenceInDays(new Date(lote.previsaoAbate), new Date(lote.dataInicio)) + 1;
+              const diasRestantes = Math.max(0, totalDias - diasConfinamento);
+
+              const pesoAtual = Math.round(lote.pesoEntrada + (diasConfinamento * ganho));
+              const pesoFinal = Math.round(lote.pesoEntrada + (totalDias * ganho));
+              const ganhoTotal = pesoFinal - lote.pesoEntrada;
+
+              const diasDieta = dietasDias[lote.id] ?? [];
+              const totalKgDieta = diasDieta.reduce((s, d) => s + d.quantidadeRecomendada, 0);
+              const custoTotalDieta = totalKgDieta * custoRacaoKg;
+              const custoTotalFormatado = custoTotalDieta.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+              const custoPorBoi = lote.quantidadeBois > 0 ? (custoTotalDieta / lote.quantidadeBois) : 0;
+
+              return (
+                <div key={lote.id} className="bg-gray-50 rounded-xl p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="font-bold text-gray-800 text-sm">{lote.nome}</p>
+                    <p className="text-xs text-gray-400">{lote.quantidadeBois} bois</p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="bg-white rounded-xl p-2.5 text-center">
+                      <p className="text-xs text-gray-400">Peso atual est.</p>
+                      <p className="text-lg font-extrabold text-gray-800">{pesoAtual} kg</p>
+                      <p className="text-xs text-green-600">Dia {diasConfinamento}</p>
+                    </div>
+                    <div className="bg-white rounded-xl p-2.5 text-center">
+                      <p className="text-xs text-gray-400">Peso final est.</p>
+                      <p className="text-lg font-extrabold text-green-700">{pesoFinal} kg</p>
+                      <p className="text-xs text-gray-400">+{ganhoTotal} kg/boi</p>
+                    </div>
+                    {custoRacaoKg > 0 && totalKgDieta > 0 && (
+                      <>
+                        <div className="bg-white rounded-xl p-2.5 text-center">
+                          <p className="text-xs text-gray-400">Custo dieta total</p>
+                          <p className="text-base font-extrabold text-blue-700">R$ {custoTotalFormatado}</p>
+                          <p className="text-xs text-gray-400">{totalKgDieta.toLocaleString('pt-BR')} kg ração</p>
+                        </div>
+                        <div className="bg-white rounded-xl p-2.5 text-center">
+                          <p className="text-xs text-gray-400">Custo por boi</p>
+                          <p className="text-base font-extrabold text-blue-700">
+                            R$ {custoPorBoi.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                          </p>
+                          <p className="text-xs text-gray-400">{diasRestantes} dias restantes</p>
+                        </div>
+                      </>
+                    )}
+                    {custoRacaoKg > 0 && totalKgDieta === 0 && (
+                      <div className="col-span-2 bg-yellow-50 border border-yellow-200 rounded-xl p-2 text-center">
+                        <p className="text-xs text-yellow-700">Configure a dieta do lote para ver custos</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Botão salvar */}
+      {erro && <p className="text-red-500 text-sm text-center">{erro}</p>}
+      <button
+        onClick={salvar}
+        disabled={salvando}
+        className={`w-full font-bold py-4 rounded-2xl transition disabled:opacity-50 ${
+          salvo ? 'bg-green-500 text-white' : 'bg-green-700 text-white active:bg-green-800'
+        }`}
+      >
+        {salvo ? '✅ Configurações salvas!' : salvando ? 'Salvando...' : 'Salvar configurações da dieta'}
+      </button>
+    </div>
   );
 }
 

@@ -86,6 +86,22 @@ export interface Cotacao {
   criadoEm: string;
 }
 
+export interface ComposicaoItem {
+  insumoId: string;
+  insumoNome: string;
+  percentual: number;   // % na ração (0–100)
+  precoKg: number;      // R$/kg (já convertido pelo usuário)
+  unidade: string;      // unidade original do insumo (para referência)
+}
+
+export interface DietaFazenda {
+  id: string;           // = fazendaId
+  fazendaId: string;
+  ganhoDiarioEsperado: number; // kg/animal/dia
+  composicao: ComposicaoItem[];
+  atualizadoEm: string;
+}
+
 export interface RecebimentoInsumo {
   id: string;
   insumoId: string;

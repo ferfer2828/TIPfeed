@@ -103,5 +103,11 @@ service cloud.firestore {
         && pertenceAFazenda(resource.data.fazendaId);
       allow create: if eGerenteDa(request.resource.data.fazendaId);
     }
+
+    // ── Dieta da Fazenda ──────────────────────────────────────────────────────
+    match /dieta_fazenda/{fazendaId} {
+      allow read: if pertenceAFazenda(fazendaId);
+      allow write: if eGerenteDa(fazendaId);
+    }
   }
 }

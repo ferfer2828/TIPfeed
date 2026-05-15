@@ -3,7 +3,7 @@ import {
   query, where, updateDoc, writeBatch,
 } from 'firebase/firestore';
 import { db } from './firebase';
-import type { Lote, DietaDia, Trato, LeituraCocho, Insumo, RecebimentoInsumo, Cotacao } from '@/types';
+import type { Lote, DietaDia, Trato, LeituraCocho, Insumo, RecebimentoInsumo, Cotacao, DietaFazenda } from '@/types';
 
 // ─── Lotes ────────────────────────────────────────────────────────────────────
 
@@ -185,4 +185,15 @@ export async function getCotacoesByFazenda(fazendaId: string): Promise<Cotacao[]
   );
   return snap.docs.map(d => d.data() as Cotacao)
     .sort((a, b) => b.data.localeCompare(a.data));
+}
+
+// ─── Dieta da Fazenda ─────────────────────────────────────────────────────────
+
+export async function getDietaFazenda(fazendaId: string): Promise<DietaFazenda | null> {
+  const snap = await getDoc(doc(db, 'dieta_fazenda', fazendaId));
+  return snap.exists() ? snap.data() as DietaFazenda : null;
+}
+
+export async function salvarDietaFazenda(d: DietaFazenda) {
+  await setDoc(doc(db, 'dieta_fazenda', d.id), d);
 }
