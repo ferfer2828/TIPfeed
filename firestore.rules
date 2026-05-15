@@ -88,6 +88,7 @@ service cloud.firestore {
       allow create: if eGerenteDa(request.resource.data.fazendaId);
       // Peão pode atualizar (ativar alerta de estoque baixo); gerente pode tudo
       allow update: if pertenceAFazenda(request.resource.data.fazendaId);
+      allow delete: if eGerenteDa(resource.data.fazendaId);
     }
 
     // ── Recebimentos de Insumo ────────────────────────────────────────────────

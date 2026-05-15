@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import {
-  getInsumos, salvarInsumo, getRecebimentos, salvarRecebimento,
+  getInsumos, salvarInsumo, excluirInsumo, getRecebimentos, salvarRecebimento,
   getCotacoesByInsumo, salvarCotacao,
   getDietaFazenda, salvarDietaFazenda, getLotes, getDietaDias,
 } from '@/lib/firestore';
@@ -18,7 +18,8 @@ type Modal =
   | { tipo: 'recebimento'; insumo: Insumo }
   | { tipo: 'historico'; insumo: Insumo }
   | { tipo: 'alerta'; insumo: Insumo }
-  | { tipo: 'cotacao'; insumo: Insumo };
+  | { tipo: 'cotacao'; insumo: Insumo }
+  | { tipo: 'excluir'; insumo: Insumo };
 
 function categoriaInfo(cat?: CategoriaInsumo) {
   return CATEGORIAS_INSUMO.find(c => c.valor === cat) ?? CATEGORIAS_INSUMO[3];
@@ -128,6 +129,19 @@ export default function InsumosPage() {
                             title="Alerta"
                           >
                             {insumo.alertaAtivo ? '🔔' : '🔕'}
+                          </button>
+                          {/* Excluir */}
+                          <button
+                            onClick={() => setModal({ tipo: 'excluir', insumo })}
+                            className="w-8 h-8 flex items-center justify-center bg-red-50 text-red-500 rounded-xl active:bg-red-100"
+                            title="Excluir"
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                              <polyline points="3 6 5 6 21 6"/>
+                              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                              <path d="M10 11v6M14 11v6"/>
+                              <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+                            </svg>
                           </button>
                         </div>
                       </div>
@@ -263,6 +277,80 @@ export default function InsumosPage() {
           onClose={() => setModal(null)}
         />
       )}
+
+      {/* Modal Confirmação Exclusão */}
+      {modal !== null && typeof modal === 'object' && modal.tipo === 'excluir' && (
+        <ModalConfirmarExclusao
+          insumo={modal.insumo}
+          onClose={() => setModal(null)}
+          onExcluido={() => {
+            setInsumos(prev => prev.filter(i => i.id !== (modal as { tipo: 'excluir'; insumo: Insumo }).insumo.id));
+            setModal(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── Modal Confirmar Exclusão ──────────────────────────────────────────────────
+
+function ModalConfirmarExclusao({ insumo, onClose, onExcluido }: {
+  insumo: Insumo;
+  onClose: () => void;
+  onExcluido: () => void;
+}) {
+  const [excluindo, setExcluindo] = useState(false);
+  const [erro, setErro] = useState('');
+
+  async function confirmar() {
+    setExcluindo(true);
+    setErro('');
+    try {
+      await excluirInsumo(insumo.id);
+      onExcluido();
+    } catch {
+      setErro('Erro ao excluir. Tente novamente.');
+      setExcluindo(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-[200] p-4">
+      <div className="bg-white rounded-2xl p-6 w-full max-w-sm">
+        <div className="flex items-center justify-center w-14 h-14 bg-red-100 rounded-2xl mx-auto mb-4">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="2.5">
+            <polyline points="3 6 5 6 21 6"/>
+            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+            <path d="M10 11v6M14 11v6"/>
+            <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+          </svg>
+        </div>
+        <h3 className="font-bold text-gray-800 text-lg text-center mb-1">Excluir insumo?</h3>
+        <p className="text-gray-500 text-sm text-center mb-1">
+          <span className="font-semibold text-gray-700">{insumo.nome}</span> será removido permanentemente.
+        </p>
+        <p className="text-gray-400 text-xs text-center mb-5">
+          Histórico de recebimentos e cotações não será afetado.
+        </p>
+        {erro && <p className="text-red-500 text-sm text-center mb-3">{erro}</p>}
+        <div className="flex gap-3">
+          <button
+            onClick={onClose}
+            disabled={excluindo}
+            className="flex-1 bg-gray-100 text-gray-700 font-semibold py-3 rounded-xl active:bg-gray-200 disabled:opacity-50"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={confirmar}
+            disabled={excluindo}
+            className="flex-1 bg-red-600 text-white font-bold py-3 rounded-xl active:bg-red-700 disabled:opacity-50"
+          >
+            {excluindo ? 'Excluindo...' : 'Excluir'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

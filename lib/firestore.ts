@@ -1,6 +1,6 @@
 import {
   collection, doc, setDoc, getDoc, getDocs,
-  query, where, updateDoc, writeBatch,
+  query, where, updateDoc, writeBatch, deleteDoc,
 } from 'firebase/firestore';
 import { db } from './firebase';
 import type { Lote, DietaDia, Trato, LeituraCocho, Insumo, RecebimentoInsumo, Cotacao, DietaFazenda } from '@/types';
@@ -143,6 +143,10 @@ export async function getInsumos(fazendaId: string): Promise<Insumo[]> {
   );
   return snap.docs.map(d => d.data() as Insumo)
     .sort((a, b) => a.nome.localeCompare(b.nome));
+}
+
+export async function excluirInsumo(insumoId: string) {
+  await deleteDoc(doc(db, 'insumos', insumoId));
 }
 
 export async function salvarRecebimento(r: RecebimentoInsumo) {

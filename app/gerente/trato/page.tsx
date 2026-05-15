@@ -86,6 +86,7 @@ export default function TratoGerentePage() {
   const totalConcluidos = lotesInfo.filter(i => i.tratosHoje.length >= i.lote.numTratosDia).length;
   const totalPendentes = lotesInfo.length - totalConcluidos;
   const totalKgHoje = lotesInfo.reduce((s, i) => s + i.tratosHoje.reduce((ts, t) => ts + t.quantidadeEfetiva, 0), 0);
+  const totalKgPrevisto = lotesInfo.reduce((s, i) => s + (i.dietaHoje?.quantidadeRecomendada ?? 0), 0);
 
   return (
     <div className="min-h-full bg-gray-50">
@@ -117,11 +118,30 @@ export default function TratoGerentePage() {
           </div>
         </div>
 
-        {/* Total kg lançados hoje */}
-        {totalKgHoje > 0 && (
-          <div className="mt-2 bg-white/10 rounded-xl px-4 py-3 flex items-center justify-between">
-            <p className="text-green-200 text-sm font-semibold">🌾 Total lançado hoje</p>
-            <p className="text-white text-xl font-extrabold">{totalKgHoje.toLocaleString('pt-BR')} kg</p>
+        {/* Total kg lançados x previstos hoje */}
+        {(totalKgHoje > 0 || totalKgPrevisto > 0) && (
+          <div className="mt-2 bg-white/10 rounded-xl px-4 py-3">
+            <div className="flex items-center justify-between">
+              <p className="text-green-200 text-sm font-semibold">⚡ Total lançado hoje</p>
+              <p className="text-white text-xl font-extrabold">{totalKgHoje.toLocaleString('pt-BR')} kg</p>
+            </div>
+            {totalKgPrevisto > 0 && (
+              <div className="flex items-center justify-between mt-1.5 border-t border-white/10 pt-1.5">
+                <p className="text-green-300 text-xs font-semibold">📋 Previsto (dieta)</p>
+                <div className="flex items-center gap-2">
+                  <p className="text-green-200 text-sm font-bold">{totalKgPrevisto.toLocaleString('pt-BR')} kg</p>
+                  {totalKgHoje > 0 && (
+                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                      totalKgHoje >= totalKgPrevisto * 0.9
+                        ? 'bg-green-500/40 text-green-100'
+                        : 'bg-orange-500/40 text-orange-100'
+                    }`}>
+                      {Math.round((totalKgHoje / totalKgPrevisto) * 100)}%
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
