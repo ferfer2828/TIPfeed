@@ -74,6 +74,7 @@ export interface Insumo {
   alertaAtivo: boolean;
   mensagemAlerta: string;
   atualizadoEm: string;
+  ativo?: boolean; // undefined = ativo; false = excluído (soft-delete)
 }
 
 export interface Cotacao {

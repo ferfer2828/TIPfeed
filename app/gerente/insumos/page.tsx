@@ -307,7 +307,7 @@ function ModalConfirmarExclusao({ insumo, onClose, onExcluido }: {
     setExcluindo(true);
     setErro('');
     try {
-      await excluirInsumo(insumo.id);
+      await excluirInsumo(insumo);
       onExcluido();
     } catch {
       setErro('Erro ao excluir. Tente novamente.');

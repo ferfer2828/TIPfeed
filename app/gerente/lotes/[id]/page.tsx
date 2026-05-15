@@ -23,6 +23,7 @@ export default function LoteDetailPage() {
   const [erro, setErro] = useState('');
   const [aba, setAba] = useState<'tratos' | 'cocho' | 'grafico'>('tratos');
   const [modalTrato, setModalTrato] = useState(false);
+  const [modalRetroativo, setModalRetroativo] = useState(false);
 
   // Edição das informações do lote
   const [editandoInfo, setEditandoInfo] = useState(false);
@@ -297,14 +298,21 @@ export default function LoteDetailPage() {
         )}
       </div>
 
-      {/* Botão lançar trato */}
-      <div className="px-4">
+      {/* Botões de trato */}
+      <div className="px-4 flex gap-2">
         <button
           onClick={() => setModalTrato(true)}
-          className="w-full bg-green-700 text-white font-bold py-3.5 rounded-2xl active:bg-green-800 flex items-center justify-center gap-2"
+          className="flex-1 bg-green-700 text-white font-bold py-3.5 rounded-2xl active:bg-green-800 flex items-center justify-center gap-2"
         >
           🌾 Lançar trato hoje
           <span className="bg-white/20 text-xs px-2 py-0.5 rounded-full">{tratosHoje.length}/{lote.numTratosDia}</span>
+        </button>
+        <button
+          onClick={() => setModalRetroativo(true)}
+          className="bg-white border border-gray-200 text-gray-600 font-bold py-3.5 px-4 rounded-2xl active:bg-gray-50 text-sm"
+          title="Lançar trato de data anterior"
+        >
+          📝
         </button>
       </div>
 
@@ -384,7 +392,7 @@ export default function LoteDetailPage() {
         )}
       </div>
 
-      {/* Modal lançar trato */}
+      {/* Modal lançar trato hoje */}
       {modalTrato && usuario && (
         <ModalLancarTrato
           lote={lote}
@@ -393,6 +401,18 @@ export default function LoteDetailPage() {
           usuario={usuario}
           onClose={() => setModalTrato(false)}
           onSalvo={() => { setModalTrato(false); carregar(); }}
+        />
+      )}
+
+      {/* Modal lançar trato retroativo */}
+      {modalRetroativo && usuario && (
+        <ModalTratoRetroativo
+          lote={lote}
+          tratos={tratos}
+          dietas={dietas}
+          usuario={usuario}
+          onClose={() => setModalRetroativo(false)}
+          onSalvo={() => { setModalRetroativo(false); carregar(); }}
         />
       )}
     </div>
@@ -516,6 +536,183 @@ function ModalLancarTrato({ lote, tratosHoje, dietaHoje, usuario, onClose, onSal
               {salvando ? 'Salvando...' : '🌾 Confirmar trato'}
             </button>
           )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Modal Trato Retroativo ────────────────────────────────────────────────────
+
+function ModalTratoRetroativo({ lote, tratos, dietas, usuario, onClose, onSalvo }: {
+  lote: Lote;
+  tratos: Trato[];
+  dietas: DietaDia[];
+  usuario: any;
+  onClose: () => void;
+  onSalvo: () => void;
+}) {
+  const ontem = format(addDays(new Date(), -1), 'yyyy-MM-dd');
+  const [data, setData] = useState(ontem);
+  const [quantidade, setQuantidade] = useState('');
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState('');
+
+  const tratosNaData = tratos.filter(t => t.data === data).sort((a, b) => a.numeroTrato - b.numeroTrato);
+  const totalJaLancado = tratosNaData.reduce((s, t) => s + t.quantidadeEfetiva, 0);
+  const proximoNumero = tratosNaData.length + 1;
+  const todosFeitos = tratosNaData.length >= lote.numTratosDia;
+  const dietaDia = dietas.find(d => d.data === data) ?? null;
+
+  async function salvar() {
+    const qtd = Math.ceil(Number(quantidade));
+    if (!qtd || qtd <= 0) { setErro('Informe a quantidade em kg.'); return; }
+    if (todosFeitos) { setErro(`Todos os ${lote.numTratosDia} tratos já foram lançados nessa data.`); return; }
+    setSalvando(true);
+    setErro('');
+    try {
+      await salvarTrato({
+        id: `${lote.id}_${data}_${proximoNumero}_${Date.now()}`,
+        loteId: lote.id,
+        fazendaId: lote.fazendaId,
+        data,
+        numeroTrato: proximoNumero,
+        quantidadeEfetiva: qtd,
+        funcionarioId: usuario.uid,
+        funcionarioNome: usuario.nome,
+        criadoEm: new Date().toISOString(),
+      });
+      onSalvo();
+    } catch (e) {
+      console.error(e);
+      setErro('Erro ao salvar. Tente novamente.');
+      setSalvando(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-[200]">
+      <div className="bg-white rounded-t-2xl w-full max-w-lg flex flex-col" style={{ maxHeight: '90vh' }}>
+        {/* Header */}
+        <div className="flex justify-between items-center px-5 py-4 border-b border-gray-100 flex-shrink-0">
+          <div>
+            <h3 className="font-bold text-gray-800">📝 Lançar trato passado</h3>
+            <p className="text-xs text-gray-400 mt-0.5">{lote.nome} · {lote.invernada}</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 text-2xl p-1 leading-none">✕</button>
+        </div>
+
+        {/* Conteúdo */}
+        <div className="overflow-y-auto flex-1 px-5 py-4 space-y-4">
+          {/* Seletor de data */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 mb-1.5">Data do trato</label>
+            <input
+              type="date"
+              value={data}
+              min={lote.dataInicio}
+              max={ontem}
+              onChange={e => { setData(e.target.value); setQuantidade(''); setErro(''); }}
+              className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+            />
+          </div>
+
+          {/* Tratos já lançados nessa data */}
+          {tratosNaData.length > 0 && (
+            <div className="bg-gray-50 rounded-xl p-3">
+              <p className="text-xs font-bold text-gray-400 mb-2">JÁ LANÇADOS NESSA DATA</p>
+              <div className="space-y-1.5">
+                {tratosNaData.map(t => (
+                  <div key={t.id} className="flex justify-between text-sm">
+                    <span className="text-gray-500">Trato {t.numeroTrato} — {t.funcionarioNome}</span>
+                    <span className="font-bold text-gray-700">{t.quantidadeEfetiva} kg</span>
+                  </div>
+                ))}
+                <div className="border-t border-gray-200 pt-1 flex justify-between text-sm">
+                  <span className="text-gray-400">Total lançado</span>
+                  <span className="font-bold text-green-700">{totalJaLancado} kg</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {todosFeitos ? (
+            <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-center">
+              <p className="text-green-700 font-semibold">
+                ✓ Todos os {lote.numTratosDia} tratos já foram lançados nessa data
+              </p>
+            </div>
+          ) : (
+            <>
+              {/* Info do trato e dieta */}
+              <div className="flex gap-2">
+                <div className="flex-1 bg-blue-50 rounded-xl px-3 py-2.5 text-center">
+                  <p className="text-xs text-gray-400">Trato nº</p>
+                  <p className="font-extrabold text-blue-700 text-lg">{proximoNumero}<span className="text-xs font-normal text-gray-400">/{lote.numTratosDia}</span></p>
+                </div>
+                {dietaDia && (
+                  <div className="flex-1 bg-green-50 rounded-xl px-3 py-2.5 text-center">
+                    <p className="text-xs text-gray-400">Dieta do dia</p>
+                    <p className="font-extrabold text-green-700 text-lg">{dietaDia.quantidadeRecomendada}<span className="text-xs font-normal text-gray-400"> kg</span></p>
+                  </div>
+                )}
+              </div>
+
+              {/* Campo de quantidade */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 mb-1.5">Quantidade (kg)</label>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  value={quantidade}
+                  onChange={e => { setQuantidade(e.target.value); setErro(''); }}
+                  onBlur={e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v > 0) setQuantidade(String(Math.ceil(v))); }}
+                  placeholder="0"
+                  min="1"
+                  autoFocus
+                  className="w-full border-2 border-green-500 rounded-2xl px-4 py-5 text-4xl font-extrabold text-green-700 text-center focus:outline-none focus:ring-4 focus:ring-green-200 bg-green-50"
+                />
+              </div>
+
+              {/* Atalhos baseados na dieta */}
+              {dietaDia && (
+                <div className="flex gap-2">
+                  {(() => {
+                    const restante = Math.max(0, dietaDia.quantidadeRecomendada - totalJaLancado);
+                    if (restante <= 0) return null;
+                    return [0.8, 0.9, 1.0].map(f => {
+                      const v = Math.ceil(
+                        lote.numTratosDia > 1 ? restante * f : dietaDia.quantidadeRecomendada * f
+                      );
+                      return (
+                        <button
+                          key={f}
+                          onClick={() => setQuantidade(String(v))}
+                          className="flex-1 bg-gray-100 text-gray-600 text-xs font-bold py-2.5 rounded-xl active:bg-gray-200"
+                        >
+                          {Math.round(f * 100)}%<br />
+                          <span className="text-gray-400">{v} kg</span>
+                        </button>
+                      );
+                    });
+                  })()}
+                </div>
+              )}
+            </>
+          )}
+
+          {erro && <p className="text-red-500 text-sm text-center">{erro}</p>}
+        </div>
+
+        {/* Rodapé */}
+        <div className="flex-shrink-0 px-5 py-4 border-t border-gray-100">
+          <button
+            onClick={salvar}
+            disabled={salvando || todosFeitos || !quantidade}
+            className="w-full bg-green-700 text-white font-bold py-4 rounded-2xl disabled:opacity-50 active:bg-green-800"
+          >
+            {salvando ? 'Salvando...' : '📝 Confirmar trato passado'}
+          </button>
         </div>
       </div>
     </div>

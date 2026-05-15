@@ -142,11 +142,18 @@ export async function getInsumos(fazendaId: string): Promise<Insumo[]> {
     query(collection(db, 'insumos'), where('fazendaId', '==', fazendaId))
   );
   return snap.docs.map(d => d.data() as Insumo)
+    .filter(i => i.ativo !== false)           // exclui soft-deleted
     .sort((a, b) => a.nome.localeCompare(b.nome));
 }
 
-export async function excluirInsumo(insumoId: string) {
-  await deleteDoc(doc(db, 'insumos', insumoId));
+// Soft-delete: usa updateDoc (regra allow update já existe) em vez de deleteDoc
+export async function excluirInsumo(insumo: { id: string; fazendaId: string }) {
+  await updateDoc(doc(db, 'insumos', insumo.id), {
+    ativo: false,
+    atualizadoEm: new Date().toISOString(),
+    // mantém fazendaId para a regra de segurança conseguir validar
+    fazendaId: insumo.fazendaId,
+  });
 }
 
 export async function salvarRecebimento(r: RecebimentoInsumo) {
