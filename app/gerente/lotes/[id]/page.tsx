@@ -134,8 +134,11 @@ export default function LoteDetailPage() {
   const datas = Object.keys(tratosPorData).sort((a, b) => b.localeCompare(a));
   const tratosHoje = tratosPorData[hoje] ?? [];
   const totalKgHoje = tratosHoje.reduce((s, t) => s + t.quantidadeEfetiva, 0);
+  const _trata = lote.trataDomingo ?? false;
   const kgBoiDia = totalKgHoje > 0 && lote.quantidadeBois > 0
-    ? ((totalKgHoje / lote.quantidadeBois / 7) * 6).toFixed(1)
+    ? _trata
+      ? (totalKgHoje / lote.quantidadeBois).toFixed(1)
+      : ((totalKgHoje / lote.quantidadeBois / 7) * 6).toFixed(1)
     : null;
 
   return (
@@ -338,7 +341,9 @@ export default function LoteDetailPage() {
                 const dietaDia = dietas.find(d => d.data === data);
                 const diff = dietaDia ? totalKg - dietaDia.quantidadeRecomendada : null;
                 const kgBD = lote.quantidadeBois > 0
-                  ? ((totalKg / lote.quantidadeBois / 7) * 6).toFixed(1)
+                  ? (lote.trataDomingo ?? false)
+                    ? (totalKg / lote.quantidadeBois).toFixed(1)
+                    : ((totalKg / lote.quantidadeBois / 7) * 6).toFixed(1)
                   : null;
                 return (
                   <div key={data} className="bg-white rounded-2xl shadow-sm p-4">
@@ -555,13 +560,17 @@ function ModalTratoRetroativo({ lote, tratos, dietas, usuario, onClose, onSalvo 
   const ontem = format(addDays(new Date(), -1), 'yyyy-MM-dd');
 
   // Calcula uma vez quais datas têm tratos faltando (do início até ontem)
+  // Domingos são pulados quando o lote não trata no domingo
   const pendingDates = useMemo(() => {
+    const trata = lote.trataDomingo ?? false;
     const start = new Date(lote.dataInicio + 'T12:00:00');
     const end   = new Date(ontem + 'T12:00:00');
     if (end < start) return [];
     const days: string[] = [];
     for (let d = new Date(start); d <= end; d = addDays(d, 1)) {
       const dateStr = format(d, 'yyyy-MM-dd');
+      // Pula domingo se o lote não trata nesse dia
+      if (!trata && new Date(dateStr + 'T12:00:00').getDay() === 0) continue;
       const n = tratos.filter(t => t.data === dateStr).length;
       if (n < lote.numTratosDia) days.push(dateStr);
     }
