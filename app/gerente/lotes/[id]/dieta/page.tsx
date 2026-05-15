@@ -4,7 +4,6 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { getLote, getDietaDias, salvarDietaDias } from '@/lib/firestore';
 import { useAuth } from '@/contexts/AuthContext';
 import { format, addDays, differenceInDays } from 'date-fns';
-import { ptBR } from 'date-fns/locale';
 import type { Lote, DietaDia } from '@/types';
 
 export default function DietaPageWrapper() {
@@ -22,12 +21,22 @@ interface DiaDieta {
   editado: boolean;
 }
 
-function calcularPeriodo(pesoEntrada: number, quantidadeBois: number, periodo: number): number {
-  // Base: 1% do peso vivo × (7/6) × qtd bois
-  const base = pesoEntrada * 0.01 * (7 / 6) * quantidadeBois;
-  // Cada período adicional adiciona 0,5kg por boi
+// Se trataDomingo === true → sem fator, trata 7 dias/semana
+// Se trataDomingo === false → usa ×7÷6 para compensar o domingo sem trato
+function calcularPeriodo(
+  pesoEntrada: number,
+  quantidadeBois: number,
+  periodo: number,
+  trataDomingo: boolean,
+): number {
+  const fator = trataDomingo ? 1 : 7 / 6;
+  const base = pesoEntrada * 0.01 * fator * quantidadeBois;
   const acrescimo = (periodo - 1) * 0.5 * quantidadeBois;
   return Math.round((base + acrescimo) * 10) / 10;
+}
+
+function isDomingo(dateStr: string): boolean {
+  return new Date(dateStr + 'T12:00:00').getDay() === 0;
 }
 
 function DietaPage() {
@@ -45,31 +54,30 @@ function DietaPage() {
   const [erro, setErro] = useState('');
   const [abaAtiva, setAbaAtiva] = useState<'periodos' | 'dias'>('periodos');
 
-  // Config períodos
   const [periodos, setPeriodos] = useState<{ kg: string }[]>([]);
 
-  function processarLote(l: Lote, dietasExistentes: import('@/types').DietaDia[]) {
+  function processarLote(l: Lote, dietasExistentes: DietaDia[]) {
     setLote(l);
+    const trata = l.trataDomingo ?? false;
     const totalDias = differenceInDays(new Date(l.previsaoAbate), new Date(l.dataInicio)) + 1;
     const numPeriodos = Math.ceil(totalDias / 15);
     const diasGerados: DiaDieta[] = [];
     for (let i = 0; i < totalDias; i++) {
       const data = format(addDays(new Date(l.dataInicio), i), 'yyyy-MM-dd');
       const existente = dietasExistentes.find(d => d.data === data);
+      const ehDom = !trata && isDomingo(data);
       diasGerados.push({
         data, dia: i + 1,
-        kg: existente ? String(existente.quantidadeRecomendada) : '',
+        kg: existente ? String(existente.quantidadeRecomendada) : ehDom ? '0' : '',
         editado: !!existente,
       });
     }
     setDias(diasGerados);
-    // Fórmula automática apenas até dia 30 (períodos 1 e 2).
-    // A partir do dia 31 o usuário preenche manualmente.
     const perGerados = Array.from({ length: numPeriodos }, (_, i) => {
       const diaInicioPeriodo = i * 15 + 1;
       return {
         kg: diaInicioPeriodo <= 30
-          ? String(calcularPeriodo(l.pesoEntrada, l.quantidadeBois, i + 1))
+          ? String(calcularPeriodo(l.pesoEntrada, l.quantidadeBois, i + 1, trata))
           : '',
       };
     });
@@ -78,20 +86,18 @@ function DietaPage() {
   }
 
   async function carregarDieta() {
-    // 1. Tenta ler do sessionStorage (lote recém-criado, evita race condition)
     try {
       const raw = sessionStorage.getItem('loteRecem');
       if (raw) {
         const loteCache = JSON.parse(raw) as Lote;
         if (loteCache.id === id) {
           sessionStorage.removeItem('loteRecem');
-          processarLote(loteCache, []); // novo lote, sem dietas ainda
+          processarLote(loteCache, []);
           return;
         }
       }
     } catch {}
 
-    // 2. Fallback: busca do Firestore com retry
     for (let tentativa = 0; tentativa < 4; tentativa++) {
       if (tentativa > 0) await new Promise(r => setTimeout(r, tentativa * 800));
       try {
@@ -103,7 +109,7 @@ function DietaPage() {
         console.error(`Tentativa ${tentativa + 1}:`, e);
       }
     }
-    setCarregando(false); // esgotou, mostra erro
+    setCarregando(false);
   }
 
   useEffect(() => {
@@ -111,9 +117,12 @@ function DietaPage() {
     carregarDieta();
   }, [id, usuario]);
 
+  // Aplica os valores de período a cada dia, zerando domingos quando necessário
   function aplicarPeriodos() {
     if (!lote) return;
+    const trata = lote.trataDomingo ?? false;
     setDias(prev => prev.map(d => {
+      if (!trata && isDomingo(d.data)) return { ...d, kg: '0', editado: false };
       const periodo = Math.ceil(d.dia / 15);
       const p = periodos[periodo - 1];
       return { ...d, kg: p?.kg ?? d.kg, editado: false };
@@ -130,11 +139,12 @@ function DietaPage() {
 
   function recalcular() {
     if (!lote) return;
+    const trata = lote.trataDomingo ?? false;
     const novos = periodos.map((_, i) => {
       const diaInicioPeriodo = i * 15 + 1;
       return {
         kg: diaInicioPeriodo <= 30
-          ? String(calcularPeriodo(lote.pesoEntrada, lote.quantidadeBois, i + 1))
+          ? String(calcularPeriodo(lote.pesoEntrada, lote.quantidadeBois, i + 1, trata))
           : '',
       };
     });
@@ -144,15 +154,15 @@ function DietaPage() {
   async function salvar() {
     if (!lote) return;
     setErro('');
-    // Salva apenas os dias preenchidos — dias futuros sem valor são normais
-    // (preenchidos conforme leitura de cocho e score de fezes)
-    const diasPreenchidos = dias.filter(d => d.kg && Number(d.kg) > 0);
-    if (diasPreenchidos.length === 0) {
+    const diasPreenchidos = dias.filter(d => d.kg && Number(d.kg) >= 0 && d.kg !== '');
+    const diasComValor = diasPreenchidos.filter(d => Number(d.kg) > 0);
+    if (diasComValor.length === 0) {
       setErro('Preencha pelo menos um período antes de salvar.');
       return;
     }
     setSalvando(true);
     try {
+      // Salva todos os preenchidos — inclusive domingos com 0
       const dietaDias: DietaDia[] = diasPreenchidos.map(d => ({
         id: `${id}_dia${d.dia}`,
         loteId: id,
@@ -200,12 +210,16 @@ function DietaPage() {
   const totalDias = dias.length;
   const numPeriodos = Math.ceil(totalDias / 15);
   const preenchidos = dias.filter(d => d.kg && Number(d.kg) > 0).length;
+  const trata = lote.trataDomingo ?? false;
+
+  // Quantos domingos existem no período total (para info)
+  const numDomingos = dias.filter(d => isDomingo(d.data)).length;
 
   return (
     <div className="min-h-full bg-gray-50 flex flex-col">
       {/* Header */}
-      <div className="bg-green-700 px-4 pt-10 pb-5 flex-shrink-0">
-        <div className="flex items-center gap-3 mb-1">
+      <div className="bg-green-700 px-4 pt-10 pb-4 flex-shrink-0">
+        <div className="flex items-center gap-3 mb-2">
           {!isNovo && (
             <button onClick={() => router.back()} className="text-green-200">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
@@ -215,6 +229,14 @@ function DietaPage() {
             <h1 className="text-white text-xl font-extrabold">{isNovo ? 'Configurar Dieta' : 'Editar Dieta'}</h1>
             <p className="text-green-200 text-xs">{lote.nome} · {totalDias} dias · {preenchidos}/{totalDias} preenchidos</p>
           </div>
+        </div>
+        {/* Badge domingo */}
+        <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold ${
+          trata
+            ? 'bg-green-600 text-green-100'
+            : 'bg-orange-500/80 text-white'
+        }`}>
+          {trata ? '✅ Trata 7 dias/semana' : `☀️ Não trata domingo · ${numDomingos} domingos = 0 kg`}
         </div>
       </div>
 
@@ -236,12 +258,24 @@ function DietaPage() {
             {/* Fórmula */}
             <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4">
               <p className="text-xs font-bold text-blue-700 mb-1">📐 FÓRMULA AUTOMÁTICA</p>
-              <p className="text-xs text-blue-600 leading-relaxed">
-                Período 1: <strong>peso × 1% × (7÷6) × bois</strong>{'\n'}
-                Cada período +15 dias adiciona <strong>+0,5kg por boi/dia</strong>
-              </p>
+              {trata ? (
+                <p className="text-xs text-blue-600 leading-relaxed">
+                  Período 1: <strong>peso × 1% × bois</strong>{'\n'}
+                  Cada período +15 dias adiciona <strong>+0,5 kg por boi/dia</strong>
+                </p>
+              ) : (
+                <p className="text-xs text-blue-600 leading-relaxed">
+                  Período 1: <strong>peso × 1% × (7÷6) × bois</strong>{'\n'}
+                  Fator ×7÷6 compensa o domingo zerado · cada período +15 dias adiciona <strong>+0,5 kg por boi/dia</strong>
+                </p>
+              )}
               <div className="mt-2 bg-blue-100 rounded-xl p-2 text-xs text-blue-700">
-                Base calculada: <strong>{(lote.pesoEntrada * 0.01 * (7/6)).toFixed(2)}kg/boi</strong> × {lote.quantidadeBois} bois = <strong>{calcularPeriodo(lote.pesoEntrada, lote.quantidadeBois, 1)}kg</strong>
+                Base calculada:{' '}
+                <strong>
+                  {(lote.pesoEntrada * 0.01 * (trata ? 1 : 7 / 6)).toFixed(2)} kg/boi
+                </strong>
+                {' '}× {lote.quantidadeBois} bois ={' '}
+                <strong>{calcularPeriodo(lote.pesoEntrada, lote.quantidadeBois, 1, trata)} kg/dia</strong>
               </div>
               <button onClick={recalcular}
                 className="mt-3 w-full bg-blue-600 text-white text-sm font-bold py-2 rounded-xl active:bg-blue-700">
@@ -257,6 +291,7 @@ function DietaPage() {
                 const dataInicio = format(addDays(new Date(lote.dataInicio), diaInicio - 1), 'dd/MM');
                 const dataFim = format(addDays(new Date(lote.dataInicio), diaFim - 1), 'dd/MM');
                 const isManual = diaInicio > 30;
+                const v = parseFloat(periodos[i]?.kg ?? '');
                 return (
                   <div key={i} className={`rounded-2xl shadow-sm p-4 ${isManual ? 'bg-orange-50 border border-orange-200' : 'bg-white'}`}>
                     <div className="flex items-center justify-between mb-3">
@@ -265,9 +300,7 @@ function DietaPage() {
                         <p className="text-xs text-gray-400">Dias {diaInicio}–{diaFim} · {dataInicio} a {dataFim}</p>
                       </div>
                       <span className={`text-xs px-2 py-1 rounded-full font-bold ${
-                        isManual
-                          ? 'bg-orange-100 text-orange-700'
-                          : 'bg-green-100 text-green-700'
+                        isManual ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'
                       }`}>
                         {isManual ? '✍️ Manual' : `${diaFim - diaInicio + 1} dias`}
                       </span>
@@ -292,17 +325,15 @@ function DietaPage() {
                       />
                       <span className="text-gray-400 font-semibold">kg/dia</span>
                     </div>
-                    {(() => {
-                      const v = parseFloat(periodos[i]?.kg ?? '');
-                      if (!isNaN(v) && v > 0 && lote.quantidadeBois > 0) {
-                        return (
-                          <p className={`text-xs font-semibold text-center mt-2 ${isManual ? 'text-orange-600' : 'text-green-600'}`}>
-                            ≈ {(v / lote.quantidadeBois / 7 * 6).toFixed(1)} kg/boi/dia
-                          </p>
-                        );
-                      }
-                      return null;
-                    })()}
+                    {!isNaN(v) && v > 0 && lote.quantidadeBois > 0 && (
+                      <p className={`text-xs font-semibold text-center mt-2 ${isManual ? 'text-orange-600' : 'text-green-600'}`}>
+                        ≈ {trata
+                          ? (v / lote.quantidadeBois).toFixed(1)
+                          : (v / lote.quantidadeBois / 7 * 6).toFixed(1)
+                        } kg/boi/dia
+                        {!trata && <span className="text-gray-400 font-normal"> (dias úteis)</span>}
+                      </p>
+                    )}
                   </div>
                 );
               })}
@@ -317,13 +348,18 @@ function DietaPage() {
           <div>
             {/* Atalho rápido */}
             <div className="px-4 py-3 bg-white border-b border-gray-100">
-              <p className="text-xs font-bold text-gray-500 mb-2">APLICAR UM VALOR A TODOS OS DIAS</p>
+              <p className="text-xs font-bold text-gray-500 mb-2">APLICAR UM VALOR A TODOS OS DIAS{!trata ? ' (exceto domingos)' : ''}</p>
               <div className="flex gap-2">
                 <input id="atalho" type="number" placeholder="Ex: 1200"
                   className="flex-1 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
                 <button onClick={() => {
                   const val = (document.getElementById('atalho') as HTMLInputElement)?.value;
-                  if (val && Number(val) > 0) setDias(prev => prev.map(d => ({ ...d, kg: val, editado: true })));
+                  if (val && Number(val) > 0) {
+                    setDias(prev => prev.map(d => {
+                      if (!trata && isDomingo(d.data)) return d; // mantém 0 no domingo
+                      return { ...d, kg: val, editado: true };
+                    }));
+                  }
                 }} className="bg-green-700 text-white font-bold px-4 py-2.5 rounded-xl text-sm active:bg-green-800">
                   Aplicar
                 </button>
@@ -337,6 +373,7 @@ function DietaPage() {
                 const isPast = d.data < hoje;
                 const periodo = Math.ceil(d.dia / 15);
                 const inicioPeriodo = d.dia % 15 === 1;
+                const ehDom = !trata && isDomingo(d.data);
                 return (
                   <div key={d.data}>
                     {inicioPeriodo && (
@@ -344,39 +381,57 @@ function DietaPage() {
                         <p className="text-xs font-bold text-gray-500">PERÍODO {periodo} — Dias {(periodo - 1) * 15 + 1}–{Math.min(periodo * 15, totalDias)}</p>
                       </div>
                     )}
-                    <div className={`flex items-center gap-3 px-4 py-3 ${isHoje ? 'bg-green-50' : 'bg-white'}`}>
-                      <div className="w-16 text-center flex-shrink-0">
-                        <p className={`text-sm font-bold ${isHoje ? 'text-green-700' : isPast ? 'text-gray-400' : 'text-gray-700'}`}>
-                          Dia {d.dia}
-                        </p>
-                        <p className="text-xs text-gray-400">{format(new Date(d.data + 'T12:00:00'), 'dd/MM')}</p>
-                        {isHoje && <span className="text-xs text-green-600 font-bold">Hoje</span>}
+                    {ehDom ? (
+                      /* Linha de domingo bloqueada */
+                      <div className="flex items-center gap-3 px-4 py-3 bg-orange-50/50 opacity-70">
+                        <div className="w-16 text-center flex-shrink-0">
+                          <p className="text-sm font-bold text-orange-400">Dia {d.dia}</p>
+                          <p className="text-xs text-gray-400">{format(new Date(d.data + 'T12:00:00'), 'dd/MM')}</p>
+                          <span className="text-xs text-orange-500 font-bold">Dom</span>
+                        </div>
+                        <div className="flex-1 bg-orange-100 border border-orange-200 rounded-xl px-3 py-2.5 text-center">
+                          <span className="text-orange-500 text-xs font-bold">☀️ Sem trato — 0 kg</span>
+                        </div>
                       </div>
-                      <input
-                        type="number"
-                        value={d.kg}
-                        onChange={e => setKgDia(i, e.target.value)}
-                        placeholder="0"
-                        min="0"
-                        className={`flex-1 border rounded-xl px-3 py-2.5 text-sm text-right font-bold focus:outline-none focus:ring-2 focus:ring-green-500
-                          ${d.editado ? 'border-blue-300 bg-blue-50' : isHoje ? 'border-green-400 bg-white' : 'border-gray-200 bg-white'}`}
-                      />
-                      <div className="flex-shrink-0 text-right w-14">
-                        <span className="text-gray-400 text-sm block">kg</span>
-                        {(() => {
-                          const v = parseFloat(d.kg);
-                          if (!isNaN(v) && v > 0 && lote.quantidadeBois > 0) {
-                            return (
-                              <span className="text-green-600 text-xs font-semibold leading-tight">
-                                {(v / lote.quantidadeBois / 7 * 6).toFixed(1)}<br/>
-                                <span className="text-gray-400 font-normal">kg/b/d</span>
-                              </span>
-                            );
-                          }
-                          return null;
-                        })()}
+                    ) : (
+                      /* Linha normal */
+                      <div className={`flex items-center gap-3 px-4 py-3 ${isHoje ? 'bg-green-50' : 'bg-white'}`}>
+                        <div className="w-16 text-center flex-shrink-0">
+                          <p className={`text-sm font-bold ${isHoje ? 'text-green-700' : isPast ? 'text-gray-400' : 'text-gray-700'}`}>
+                            Dia {d.dia}
+                          </p>
+                          <p className="text-xs text-gray-400">{format(new Date(d.data + 'T12:00:00'), 'dd/MM')}</p>
+                          {isHoje && <span className="text-xs text-green-600 font-bold">Hoje</span>}
+                        </div>
+                        <input
+                          type="number"
+                          value={d.kg}
+                          onChange={e => setKgDia(i, e.target.value)}
+                          placeholder="0"
+                          min="0"
+                          className={`flex-1 border rounded-xl px-3 py-2.5 text-sm text-right font-bold focus:outline-none focus:ring-2 focus:ring-green-500
+                            ${d.editado ? 'border-blue-300 bg-blue-50' : isHoje ? 'border-green-400 bg-white' : 'border-gray-200 bg-white'}`}
+                        />
+                        <div className="flex-shrink-0 text-right w-14">
+                          <span className="text-gray-400 text-sm block">kg</span>
+                          {(() => {
+                            const v = parseFloat(d.kg);
+                            if (!isNaN(v) && v > 0 && lote.quantidadeBois > 0) {
+                              const kgBoi = trata
+                                ? v / lote.quantidadeBois
+                                : v / lote.quantidadeBois / 7 * 6;
+                              return (
+                                <span className="text-green-600 text-xs font-semibold leading-tight">
+                                  {kgBoi.toFixed(1)}<br/>
+                                  <span className="text-gray-400 font-normal">kg/b/d</span>
+                                </span>
+                              );
+                            }
+                            return null;
+                          })()}
+                        </div>
                       </div>
-                    </div>
+                    )}
                   </div>
                 );
               })}

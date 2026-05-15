@@ -999,7 +999,8 @@ function AbaDietaFazenda({ insumos, fazendaId }: { insumos: Insumo[]; fazendaId:
       setTimeout(() => setSalvo(false), 2500);
     } catch (e) {
       console.error('Erro ao salvar dieta da fazenda:', e);
-      setErro('Erro ao salvar. Tente novamente.');
+      const msg = (e instanceof Error ? e.message : String(e)).slice(0, 200);
+      setErro(`Erro: ${msg}`);
     }
     finally { setSalvando(false); }
   }

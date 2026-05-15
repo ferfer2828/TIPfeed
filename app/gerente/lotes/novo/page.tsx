@@ -23,6 +23,7 @@ export default function NovoLotePage() {
     pesoEntrada: '',
     numTratosDia: '1',
   });
+  const [trataDomingo, setTrataDomingo] = useState(false);
 
   function set(campo: string, valor: string) {
     setForm(f => ({ ...f, [campo]: valor }));
@@ -56,6 +57,7 @@ export default function NovoLotePage() {
         quantidadeBois: Number(form.quantidadeBois),
         pesoEntrada: Number(form.pesoEntrada),
         numTratosDia: Number(form.numTratosDia),
+        trataDomingo,
         ordemDescarregamento: maxOrdem + 1,
         ativo: true,
         criadoEm: agora,
@@ -115,6 +117,33 @@ export default function NovoLotePage() {
                 </button>
               ))}
             </div>
+          </div>
+
+          {/* Trata no domingo? */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 mb-1">Trata no domingo?</label>
+            <div className="flex gap-2">
+              {([true, false] as const).map(valor => (
+                <button
+                  key={String(valor)}
+                  type="button"
+                  onClick={() => setTrataDomingo(valor)}
+                  className={`flex-1 py-3 rounded-xl font-bold text-sm transition
+                    ${trataDomingo === valor
+                      ? valor
+                        ? 'bg-green-700 text-white'
+                        : 'bg-orange-500 text-white'
+                      : 'bg-gray-100 text-gray-600 active:bg-gray-200'}`}
+                >
+                  {valor ? 'Sim' : 'Não'}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-gray-400 mt-1.5 leading-snug">
+              {trataDomingo
+                ? '✅ Dieta calculada para 7 dias/semana — sem fator de correção'
+                : '☀️ Domingo = 0 kg · dieta dos demais dias usa fator ×7÷6 para compensar'}
+            </p>
           </div>
         </Secao>
 

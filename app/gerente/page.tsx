@@ -124,14 +124,17 @@ export default function GerentePainel() {
             </div>
           ) : (
             <div className="space-y-2">
-              {lotes.slice(0, 4).map(lote => {
+              {lotes.map(lote => {
                 const tratosLote = tratos.filter(t => t.loteId === lote.id);
                 const diasConfinamento = Math.floor(
                   (new Date().getTime() - new Date(lote.dataInicio).getTime()) / (1000 * 60 * 60 * 24)
                 );
                 const totalKgHoje = tratosLote.reduce((s, t) => s + t.quantidadeEfetiva, 0);
+                const trata = lote.trataDomingo ?? false;
                 const kgBoiDia = totalKgHoje > 0 && lote.quantidadeBois > 0
-                  ? ((totalKgHoje / lote.quantidadeBois / 7) * 6).toFixed(1)
+                  ? trata
+                    ? (totalKgHoje / lote.quantidadeBois).toFixed(1)
+                    : ((totalKgHoje / lote.quantidadeBois / 7) * 6).toFixed(1)
                   : null;
                 return (
                   <Link key={lote.id} href={`/gerente/lotes/${lote.id}`}>

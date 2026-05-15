@@ -19,6 +19,8 @@ export interface Lote {
   previsaoAbate: string;
   numTratosDia: number;
   ordemDescarregamento: number;
+  /** true = trata 7 dias/semana · false/undefined = não trata domingo (usa fator ×7÷6) */
+  trataDomingo?: boolean;
   ativo: boolean;
   criadoEm: string;
   atualizadoEm: string;
