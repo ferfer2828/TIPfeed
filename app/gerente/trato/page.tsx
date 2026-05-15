@@ -536,7 +536,7 @@ function ModalLancarTrato({ lote, tratosHoje: tratosIniciais, dietaHoje, usuario
                   {tratos.sort((a, b) => a.numeroTrato - b.numeroTrato).map(t => (
                     <div key={t.id}>
                       {editandoId === t.id ? (
-                        <div className="flex items-center gap-2 bg-yellow-50 rounded-xl px-3 py-2">
+                        <div className="flex items-center gap-2 bg-yellow-50 rounded-xl px-3 py-2.5">
                           <span className="text-xs text-gray-500 flex-shrink-0">Trato {t.numeroTrato}</span>
                           <input
                             type="number"
@@ -544,37 +544,36 @@ function ModalLancarTrato({ lote, tratosHoje: tratosIniciais, dietaHoje, usuario
                             value={editQtd}
                             onChange={e => setEditQtd(e.target.value)}
                             autoFocus
-                            className="flex-1 border border-yellow-400 rounded-lg px-2 py-1 text-sm font-bold text-center focus:outline-none focus:ring-2 focus:ring-yellow-300"
+                            className="flex-1 border border-yellow-400 rounded-lg px-2 py-1.5 text-sm font-bold text-center focus:outline-none focus:ring-2 focus:ring-yellow-300"
                           />
                           <span className="text-xs text-gray-400 flex-shrink-0">kg</span>
                           <button
                             onClick={() => confirmarEdicao(t)}
                             disabled={salvando}
-                            className="bg-green-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg active:bg-green-700 disabled:opacity-60"
+                            className="bg-green-600 text-white text-xs font-bold px-3 py-2 rounded-lg active:bg-green-700 disabled:opacity-60"
                           >
-                            ✓
+                            ✓ Salvar
                           </button>
                           <button
                             onClick={() => { setEditandoId(null); setErro(''); }}
-                            className="text-gray-400 text-xs px-2 py-1.5"
+                            className="text-gray-400 text-xs px-2 py-2"
                           >
                             ✕
                           </button>
                         </div>
                       ) : (
-                        <div className="flex justify-between items-center bg-gray-50 rounded-xl px-3 py-2 text-sm">
-                          <span className="text-gray-500">Trato {t.numeroTrato} — {t.funcionarioNome}</span>
+                        <div className="flex justify-between items-center bg-gray-50 rounded-xl px-3 py-2.5 text-sm">
+                          <div>
+                            <span className="text-gray-700 font-semibold">Trato {t.numeroTrato}</span>
+                            <span className="text-gray-400 text-xs ml-1">— {t.funcionarioNome}</span>
+                          </div>
                           <div className="flex items-center gap-2">
-                            <span className="font-bold text-gray-700">{t.quantidadeEfetiva}kg</span>
+                            <span className="font-bold text-gray-800">{t.quantidadeEfetiva} kg</span>
                             <button
                               onClick={() => { setEditandoId(t.id); setEditQtd(String(t.quantidadeEfetiva)); setErro(''); }}
-                              className="text-gray-300 active:text-gray-500 p-1"
-                              title="Editar"
+                              className="text-blue-600 text-xs font-bold px-2.5 py-1.5 bg-blue-50 rounded-lg active:bg-blue-100 flex-shrink-0"
                             >
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                                <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
-                                <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                              </svg>
+                              Editar
                             </button>
                           </div>
                         </div>

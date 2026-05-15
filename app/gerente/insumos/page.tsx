@@ -979,17 +979,28 @@ function AbaDietaFazenda({ insumos, fazendaId }: { insumos: Insumo[]; fazendaId:
     if (!ganhoDiario || Number(ganhoDiario) <= 0) { setErro('Informe o ganho diário esperado.'); return; }
     setSalvando(true);
     try {
+      // Sanitiza para garantir que não há undefined/NaN (Firestore rejeita esses valores)
+      const composicaoSalva = composicao.map(c => ({
+        insumoId:    c.insumoId   ?? '',
+        insumoNome:  c.insumoNome ?? '',
+        percentual:  Number.isFinite(Number(c.percentual)) ? Number(c.percentual) : 0,
+        precoKg:     Number.isFinite(Number(c.precoKg))    ? Number(c.precoKg)    : 0,
+        unidade:     c.unidade    ?? '',
+      }));
       const d: DietaFazenda = {
         id: fazendaId,
         fazendaId,
         ganhoDiarioEsperado: Number(ganhoDiario),
-        composicao,
+        composicao: composicaoSalva,
         atualizadoEm: new Date().toISOString(),
       };
       await salvarDietaFazenda(d);
       setSalvo(true);
       setTimeout(() => setSalvo(false), 2500);
-    } catch { setErro('Erro ao salvar. Tente novamente.'); }
+    } catch (e) {
+      console.error('Erro ao salvar dieta da fazenda:', e);
+      setErro('Erro ao salvar. Tente novamente.');
+    }
     finally { setSalvando(false); }
   }
 
