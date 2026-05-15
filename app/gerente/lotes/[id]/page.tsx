@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { getLote, getTratosByLote, getLeiturasCochoByLote, getDietaDias, getDietaDiaByData, getTratosByLoteData, salvarTrato, salvarLote } from '@/lib/firestore';
 import Link from 'next/link';
@@ -542,7 +542,7 @@ function ModalLancarTrato({ lote, tratosHoje, dietaHoje, usuario, onClose, onSal
   );
 }
 
-// ─── Modal Trato Retroativo ────────────────────────────────────────────────────
+// ─── Modal Trato Retroativo (wizard guiado por dia) ───────────────────────────
 
 function ModalTratoRetroativo({ lote, tratos, dietas, usuario, onClose, onSalvo }: {
   lote: Lote;
@@ -553,151 +553,230 @@ function ModalTratoRetroativo({ lote, tratos, dietas, usuario, onClose, onSalvo 
   onSalvo: () => void;
 }) {
   const ontem = format(addDays(new Date(), -1), 'yyyy-MM-dd');
-  const [data, setData] = useState(ontem);
-  const [quantidade, setQuantidade] = useState('');
-  const [salvando, setSalvando] = useState(false);
-  const [erro, setErro] = useState('');
 
-  const tratosNaData = tratos.filter(t => t.data === data).sort((a, b) => a.numeroTrato - b.numeroTrato);
-  const totalJaLancado = tratosNaData.reduce((s, t) => s + t.quantidadeEfetiva, 0);
-  const proximoNumero = tratosNaData.length + 1;
-  const todosFeitos = tratosNaData.length >= lote.numTratosDia;
-  const dietaDia = dietas.find(d => d.data === data) ?? null;
+  // Calcula uma vez quais datas têm tratos faltando (do início até ontem)
+  const pendingDates = useMemo(() => {
+    const start = new Date(lote.dataInicio + 'T12:00:00');
+    const end   = new Date(ontem + 'T12:00:00');
+    if (end < start) return [];
+    const days: string[] = [];
+    for (let d = new Date(start); d <= end; d = addDays(d, 1)) {
+      const dateStr = format(d, 'yyyy-MM-dd');
+      const n = tratos.filter(t => t.data === dateStr).length;
+      if (n < lote.numTratosDia) days.push(dateStr);
+    }
+    return days;
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function salvar() {
+  const [currentIdx, setCurrentIdx]   = useState(0);
+  const [localTratos, setLocalTratos] = useState<Trato[]>([]);
+  const [quantidade, setQuantidade]   = useState('');
+  const [salvando, setSalvando]       = useState(false);
+  const [erro, setErro]               = useState('');
+  const [totalSalvos, setTotalSalvos] = useState(0);
+  const [finalizado, setFinalizado]   = useState(false);
+
+  // Tela: tudo em dia
+  if (pendingDates.length === 0) {
+    return (
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[200] p-6">
+        <div className="bg-white rounded-2xl p-6 w-full max-w-sm text-center shadow-xl">
+          <p className="text-4xl mb-3">✅</p>
+          <p className="font-bold text-gray-800 text-lg mb-1">Tudo em dia!</p>
+          <p className="text-gray-400 text-sm mb-5">Não há tratos pendentes nos dias anteriores.</p>
+          <button onClick={onClose} className="w-full bg-green-700 text-white font-bold py-4 rounded-2xl">Fechar</button>
+        </div>
+      </div>
+    );
+  }
+
+  // Tela: concluído
+  if (finalizado) {
+    return (
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[200] p-6">
+        <div className="bg-white rounded-2xl p-6 w-full max-w-sm text-center shadow-xl">
+          <p className="text-4xl mb-3">🎉</p>
+          <p className="font-bold text-gray-800 text-lg mb-1">
+            {totalSalvos} {totalSalvos === 1 ? 'trato salvo' : 'tratos salvos'}!
+          </p>
+          <p className="text-gray-400 text-sm mb-5">Histórico atualizado com sucesso.</p>
+          <button onClick={onSalvo} className="w-full bg-green-700 text-white font-bold py-4 rounded-2xl">Fechar</button>
+        </div>
+      </div>
+    );
+  }
+
+  const currentDate      = pendingDates[currentIdx];
+  const allTratosNaData  = [...tratos, ...localTratos]
+    .filter(t => t.data === currentDate)
+    .sort((a, b) => a.numeroTrato - b.numeroTrato);
+  const totalJaLancado   = allTratosNaData.reduce((s, t) => s + t.quantidadeEfetiva, 0);
+  const proximoNum       = allTratosNaData.length + 1;
+  const diaCompleto      = allTratosNaData.length >= lote.numTratosDia;
+  const dietaDia         = dietas.find(d => d.data === currentDate) ?? null;
+  const isUltimoPendente = currentIdx === pendingDates.length - 1;
+  const progresso        = Math.round((currentIdx / pendingDates.length) * 100);
+
+  function avancar() {
+    setQuantidade('');
+    setErro('');
+    if (isUltimoPendente) {
+      if (totalSalvos > 0) setFinalizado(true);
+      else onClose();
+    } else {
+      setCurrentIdx(i => i + 1);
+    }
+  }
+
+  async function confirmar() {
     const qtd = Math.ceil(Number(quantidade));
     if (!qtd || qtd <= 0) { setErro('Informe a quantidade em kg.'); return; }
-    if (todosFeitos) { setErro(`Todos os ${lote.numTratosDia} tratos já foram lançados nessa data.`); return; }
     setSalvando(true);
     setErro('');
-    try {
-      await salvarTrato({
-        id: `${lote.id}_${data}_${proximoNumero}_${Date.now()}`,
-        loteId: lote.id,
-        fazendaId: lote.fazendaId,
-        data,
-        numeroTrato: proximoNumero,
-        quantidadeEfetiva: qtd,
-        funcionarioId: usuario.uid,
-        funcionarioNome: usuario.nome,
-        criadoEm: new Date().toISOString(),
-      });
-      onSalvo();
-    } catch (e) {
-      console.error(e);
-      setErro('Erro ao salvar. Tente novamente.');
-      setSalvando(false);
+
+    const novoTrato: Trato = {
+      id: `${lote.id}_${currentDate}_${proximoNum}_${Date.now()}`,
+      loteId: lote.id,
+      fazendaId: lote.fazendaId,
+      data: currentDate,
+      numeroTrato: proximoNum,
+      quantidadeEfetiva: qtd,
+      funcionarioId: usuario.uid,
+      funcionarioNome: usuario.nome,
+      criadoEm: new Date().toISOString(),
+    };
+
+    // Otimista: atualiza UI imediatamente
+    setLocalTratos(prev => [...prev, novoTrato]);
+    setTotalSalvos(s => s + 1);
+    setQuantidade('');
+    setSalvando(false);
+
+    // Se dia ficou completo após este trato → avança automaticamente
+    const novoTotal = allTratosNaData.length + 1;
+    if (novoTotal >= lote.numTratosDia) {
+      setTimeout(avancar, 300); // pequena pausa para o usuário ver o registro
     }
+
+    // Salva em background
+    salvarTrato(novoTrato).catch(e => console.error('Trato salvo localmente:', e));
   }
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-[200]">
-      <div className="bg-white rounded-t-2xl w-full max-w-lg flex flex-col" style={{ maxHeight: '90vh' }}>
+      <div className="bg-white rounded-t-2xl w-full max-w-lg flex flex-col" style={{ maxHeight: '92vh' }}>
+
         {/* Header */}
         <div className="flex justify-between items-center px-5 py-4 border-b border-gray-100 flex-shrink-0">
           <div>
-            <h3 className="font-bold text-gray-800">📝 Lançar trato passado</h3>
-            <p className="text-xs text-gray-400 mt-0.5">{lote.nome} · {lote.invernada}</p>
+            <h3 className="font-bold text-gray-800">📝 Tratos passados</h3>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {lote.nome} · {currentIdx + 1} de {pendingDates.length} dia{pendingDates.length !== 1 ? 's' : ''} pendente{pendingDates.length !== 1 ? 's' : ''}
+            </p>
           </div>
-          <button onClick={onClose} className="text-gray-400 text-2xl p-1 leading-none">✕</button>
+          <button
+            onClick={() => { if (totalSalvos > 0) onSalvo(); else onClose(); }}
+            className="text-gray-400 text-2xl p-1 leading-none"
+          >✕</button>
+        </div>
+
+        {/* Barra de progresso */}
+        <div className="h-1.5 bg-gray-100 flex-shrink-0">
+          <div className="h-full bg-green-500 transition-all duration-300 rounded-r-full" style={{ width: `${progresso}%` }} />
         </div>
 
         {/* Conteúdo */}
-        <div className="overflow-y-auto flex-1 px-5 py-4 space-y-4">
-          {/* Seletor de data */}
-          <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1.5">Data do trato</label>
-            <input
-              type="date"
-              value={data}
-              min={lote.dataInicio}
-              max={ontem}
-              onChange={e => { setData(e.target.value); setQuantidade(''); setErro(''); }}
-              className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-            />
+        <div className="overflow-y-auto flex-1 px-5 py-5 space-y-4">
+
+          {/* Data em destaque */}
+          <div className="text-center pb-1">
+            <p className="text-3xl font-extrabold text-gray-800">
+              {format(new Date(currentDate + 'T12:00:00'), "dd 'de' MMMM", { locale: ptBR })}
+            </p>
+            <p className="text-xs text-gray-400 mt-1">
+              {format(new Date(currentDate + 'T12:00:00'), 'yyyy')}
+              {lote.numTratosDia > 1 && !diaCompleto && ` · Trato ${proximoNum} de ${lote.numTratosDia}`}
+            </p>
           </div>
 
-          {/* Tratos já lançados nessa data */}
-          {tratosNaData.length > 0 && (
-            <div className="bg-gray-50 rounded-xl p-3">
-              <p className="text-xs font-bold text-gray-400 mb-2">JÁ LANÇADOS NESSA DATA</p>
-              <div className="space-y-1.5">
-                {tratosNaData.map(t => (
-                  <div key={t.id} className="flex justify-between text-sm">
-                    <span className="text-gray-500">Trato {t.numeroTrato} — {t.funcionarioNome}</span>
-                    <span className="font-bold text-gray-700">{t.quantidadeEfetiva} kg</span>
+          {/* Tratos já salvos no dia */}
+          {allTratosNaData.length > 0 && (
+            <div className="bg-green-50 border border-green-100 rounded-xl p-3">
+              <p className="text-xs font-bold text-green-600 mb-2">✓ JÁ LANÇADOS NESTE DIA</p>
+              <div className="space-y-1">
+                {allTratosNaData.map(t => (
+                  <div key={t.id} className="flex justify-between text-sm text-gray-700">
+                    <span className="text-gray-500">Trato {t.numeroTrato}</span>
+                    <span className="font-bold">{t.quantidadeEfetiva} kg</span>
                   </div>
                 ))}
-                <div className="border-t border-gray-200 pt-1 flex justify-between text-sm">
-                  <span className="text-gray-400">Total lançado</span>
-                  <span className="font-bold text-green-700">{totalJaLancado} kg</span>
-                </div>
+                {lote.numTratosDia > 1 && (
+                  <div className="border-t border-green-200 mt-1.5 pt-1.5 flex justify-between text-xs">
+                    <span className="text-gray-400">Total do dia</span>
+                    <span className="font-bold text-green-700">{totalJaLancado} kg</span>
+                  </div>
+                )}
               </div>
             </div>
           )}
 
-          {todosFeitos ? (
+          {diaCompleto ? (
+            // Dia já completo — avança automaticamente (não deveria aparecer, mas como fallback)
             <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-center">
-              <p className="text-green-700 font-semibold">
-                ✓ Todos os {lote.numTratosDia} tratos já foram lançados nessa data
+              <p className="text-green-700 font-semibold text-sm">
+                ✓ Todos os {lote.numTratosDia} tratos deste dia já foram registrados
               </p>
             </div>
           ) : (
             <>
-              {/* Info do trato e dieta */}
-              <div className="flex gap-2">
-                <div className="flex-1 bg-blue-50 rounded-xl px-3 py-2.5 text-center">
-                  <p className="text-xs text-gray-400">Trato nº</p>
-                  <p className="font-extrabold text-blue-700 text-lg">{proximoNumero}<span className="text-xs font-normal text-gray-400">/{lote.numTratosDia}</span></p>
-                </div>
-                {dietaDia && (
-                  <div className="flex-1 bg-green-50 rounded-xl px-3 py-2.5 text-center">
-                    <p className="text-xs text-gray-400">Dieta do dia</p>
-                    <p className="font-extrabold text-green-700 text-lg">{dietaDia.quantidadeRecomendada}<span className="text-xs font-normal text-gray-400"> kg</span></p>
-                  </div>
-                )}
-              </div>
-
-              {/* Campo de quantidade */}
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 mb-1.5">Quantidade (kg)</label>
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  value={quantidade}
-                  onChange={e => { setQuantidade(e.target.value); setErro(''); }}
-                  onBlur={e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v > 0) setQuantidade(String(Math.ceil(v))); }}
-                  placeholder="0"
-                  min="1"
-                  autoFocus
-                  className="w-full border-2 border-green-500 rounded-2xl px-4 py-5 text-4xl font-extrabold text-green-700 text-center focus:outline-none focus:ring-4 focus:ring-green-200 bg-green-50"
-                />
-              </div>
-
-              {/* Atalhos baseados na dieta */}
+              {/* Chip da dieta */}
               {dietaDia && (
-                <div className="flex gap-2">
-                  {(() => {
-                    const restante = Math.max(0, dietaDia.quantidadeRecomendada - totalJaLancado);
-                    if (restante <= 0) return null;
-                    return [0.8, 0.9, 1.0].map(f => {
-                      const v = Math.ceil(
-                        lote.numTratosDia > 1 ? restante * f : dietaDia.quantidadeRecomendada * f
-                      );
+                <div className="flex items-center justify-between bg-blue-50 rounded-xl px-4 py-2.5">
+                  <span className="text-sm text-gray-500">Dieta prevista</span>
+                  <span className="font-bold text-blue-700">{dietaDia.quantidadeRecomendada} kg</span>
+                </div>
+              )}
+
+              {/* Input grande de quantidade */}
+              <input
+                type="number"
+                inputMode="numeric"
+                value={quantidade}
+                onChange={e => { setQuantidade(e.target.value); setErro(''); }}
+                onBlur={e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v > 0) setQuantidade(String(Math.ceil(v))); }}
+                placeholder="0"
+                min="1"
+                autoFocus
+                className="w-full border-2 border-green-500 rounded-2xl px-4 py-5 text-5xl font-extrabold text-green-700 text-center focus:outline-none focus:ring-4 focus:ring-green-200 bg-green-50"
+              />
+              <p className="text-xs text-center text-gray-400 -mt-2">kg neste trato</p>
+
+              {/* Atalhos de % */}
+              {dietaDia && (() => {
+                const base = lote.numTratosDia > 1
+                  ? Math.max(0, dietaDia.quantidadeRecomendada - totalJaLancado)
+                  : dietaDia.quantidadeRecomendada;
+                if (base <= 0) return null;
+                return (
+                  <div className="flex gap-2">
+                    {[0.8, 0.9, 1.0].map(f => {
+                      const v = Math.ceil(base * f);
                       return (
                         <button
                           key={f}
                           onClick={() => setQuantidade(String(v))}
-                          className="flex-1 bg-gray-100 text-gray-600 text-xs font-bold py-2.5 rounded-xl active:bg-gray-200"
+                          className={`flex-1 text-xs font-bold py-2.5 rounded-xl active:opacity-70 ${
+                            f === 1.0 ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
+                          }`}
                         >
                           {Math.round(f * 100)}%<br />
-                          <span className="text-gray-400">{v} kg</span>
+                          <span className="font-normal text-gray-400">{v} kg</span>
                         </button>
                       );
-                    });
-                  })()}
-                </div>
-              )}
+                    })}
+                  </div>
+                );
+              })()}
             </>
           )}
 
@@ -705,13 +784,21 @@ function ModalTratoRetroativo({ lote, tratos, dietas, usuario, onClose, onSalvo 
         </div>
 
         {/* Rodapé */}
-        <div className="flex-shrink-0 px-5 py-4 border-t border-gray-100">
+        <div className="flex-shrink-0 px-5 py-4 border-t border-gray-100 space-y-2">
+          {!diaCompleto && (
+            <button
+              onClick={confirmar}
+              disabled={salvando || !quantidade}
+              className="w-full bg-green-700 text-white font-bold py-4 rounded-2xl text-lg disabled:opacity-50 active:bg-green-800"
+            >
+              {salvando ? 'Salvando...' : isUltimoPendente ? '✓ Confirmar e finalizar' : '✓ Confirmar →'}
+            </button>
+          )}
           <button
-            onClick={salvar}
-            disabled={salvando || todosFeitos || !quantidade}
-            className="w-full bg-green-700 text-white font-bold py-4 rounded-2xl disabled:opacity-50 active:bg-green-800"
+            onClick={avancar}
+            className="w-full text-gray-400 text-sm py-2 active:text-gray-600"
           >
-            {salvando ? 'Salvando...' : '📝 Confirmar trato passado'}
+            {isUltimoPendente ? 'Pular e fechar' : 'Pular este dia →'}
           </button>
         </div>
       </div>
