@@ -4,13 +4,14 @@ import { useAuth } from '@/contexts/AuthContext';
 import { getLotes, salvarLote, inativarLote } from '@/lib/firestore';
 import Link from 'next/link';
 import type { Lote } from '@/types';
-import { format, differenceInDays } from 'date-fns';
+import { format, differenceInDays, addDays } from 'date-fns';
 
 export default function LotesPage() {
   const { usuario } = useAuth();
   const [lotes, setLotes] = useState<Lote[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [confirmandoId, setConfirmandoId] = useState<string | null>(null);
+  const [editandoLote, setEditandoLote] = useState<Lote | null>(null);
 
   async function carregar(tentativas = 3) {
     if (!usuario) return;
@@ -35,24 +36,23 @@ export default function LotesPage() {
     const novaLista = [...lotes];
     const destIndex = direcao === 'up' ? index - 1 : index + 1;
     if (destIndex < 0 || destIndex >= novaLista.length) return;
-    // Trocar ordens
     const ordemA = novaLista[index].ordemDescarregamento;
     const ordemB = novaLista[destIndex].ordemDescarregamento;
     novaLista[index] = { ...novaLista[index], ordemDescarregamento: ordemB };
     novaLista[destIndex] = { ...novaLista[destIndex], ordemDescarregamento: ordemA };
-    // Re-sort
     novaLista.sort((a, b) => a.ordemDescarregamento - b.ordemDescarregamento);
     setLotes(novaLista);
-    await Promise.all([
-      salvarLote(novaLista[index]),
-      salvarLote(novaLista[destIndex]),
-    ]);
+    await Promise.all([salvarLote(novaLista[index]), salvarLote(novaLista[destIndex])]);
   }
 
   async function encerrarLote(id: string) {
     await inativarLote(id);
     setConfirmandoId(null);
     carregar();
+  }
+
+  function atualizarLoteLocal(loteAtualizado: Lote) {
+    setLotes(prev => prev.map(l => l.id === loteAtualizado.id ? loteAtualizado : l));
   }
 
   const hoje = new Date();
@@ -102,11 +102,12 @@ export default function LotesPage() {
                           </Link>
                         </div>
                         <p className="text-xs text-gray-400 mt-1">
-                          {lote.invernada} · {lote.quantidadeBois} bois · {lote.pesoEntrada}kg
+                          {lote.invernada} · {lote.quantidadeBois} bois · {lote.pesoEntrada}kg entrada
                         </p>
                         <p className="text-xs text-gray-500 mt-0.5">
                           Dia <span className="font-bold text-green-700">{diasConfinamento}</span> ·{' '}
-                          {diasRestantes > 0 ? `${diasRestantes} dias p/ abate` : 'No prazo de abate'}
+                          {diasRestantes > 0 ? `${diasRestantes} dias p/ abate` : 'No prazo de abate'}{' '}
+                          · {lote.numTratosDia}x/dia
                         </p>
                       </div>
 
@@ -152,7 +153,7 @@ export default function LotesPage() {
                     <div className="flex gap-2 mt-3">
                       <Link href={`/gerente/lotes/${lote.id}`} className="flex-1">
                         <button className="w-full text-xs bg-green-50 text-green-700 font-semibold py-2 rounded-xl active:bg-green-100">
-                          Ver histórico
+                          Histórico
                         </button>
                       </Link>
                       <Link href={`/gerente/lotes/${lote.id}/dieta`} className="flex-1">
@@ -160,6 +161,12 @@ export default function LotesPage() {
                           Dieta
                         </button>
                       </Link>
+                      <button
+                        onClick={() => setEditandoLote(lote)}
+                        className="text-xs bg-gray-50 text-gray-700 font-semibold py-2 px-3 rounded-xl active:bg-gray-100"
+                      >
+                        ✏️ Editar
+                      </button>
                       <button
                         onClick={() => setConfirmandoId(lote.id)}
                         className="text-xs bg-red-50 text-red-600 font-semibold py-2 px-3 rounded-xl active:bg-red-100"
@@ -180,6 +187,18 @@ export default function LotesPage() {
           </button>
         </Link>
       </div>
+
+      {/* Modal Editar Lote */}
+      {editandoLote && (
+        <ModalEditarLote
+          lote={editandoLote}
+          onClose={() => setEditandoLote(null)}
+          onSalvo={(loteAtualizado) => {
+            atualizarLoteLocal(loteAtualizado);
+            setEditandoLote(null);
+          }}
+        />
+      )}
 
       {/* Modal de confirmação de encerramento */}
       {confirmandoId && (
@@ -204,6 +223,150 @@ export default function LotesPage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Modal Editar Lote ─────────────────────────────────────────────────────────
+
+function ModalEditarLote({ lote, onClose, onSalvo }: {
+  lote: Lote;
+  onClose: () => void;
+  onSalvo: (loteAtualizado: Lote) => void;
+}) {
+  const [nome, setNome] = useState(lote.nome);
+  const [invernada, setInvernada] = useState(lote.invernada);
+  const [dataInicio, setDataInicio] = useState(lote.dataInicio);
+  const [previsaoAbate, setPrevisaoAbate] = useState(lote.previsaoAbate);
+  const [quantidadeBois, setQuantidadeBois] = useState(String(lote.quantidadeBois));
+  const [pesoEntrada, setPesoEntrada] = useState(String(lote.pesoEntrada));
+  const [numTratosDia, setNumTratosDia] = useState(String(lote.numTratosDia));
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState('');
+
+  async function salvar() {
+    setErro('');
+    if (!nome.trim() || !invernada.trim()) { setErro('Nome e invernada são obrigatórios.'); return; }
+    if (!quantidadeBois || Number(quantidadeBois) <= 0) { setErro('Informe a quantidade de bois.'); return; }
+    if (!pesoEntrada || Number(pesoEntrada) <= 0) { setErro('Informe o peso de entrada.'); return; }
+    if (new Date(previsaoAbate) <= new Date(dataInicio)) { setErro('A data de abate deve ser após o início.'); return; }
+
+    setSalvando(true);
+    try {
+      const loteAtualizado: Lote = {
+        ...lote,
+        nome: nome.trim(),
+        invernada: invernada.trim(),
+        dataInicio,
+        previsaoAbate,
+        quantidadeBois: Number(quantidadeBois),
+        pesoEntrada: Number(pesoEntrada),
+        numTratosDia: Number(numTratosDia),
+        atualizadoEm: new Date().toISOString(),
+      };
+      await salvarLote(loteAtualizado);
+      onSalvo(loteAtualizado);
+    } catch {
+      setErro('Erro ao salvar. Tente novamente.');
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-[100]">
+      <div className="bg-white rounded-t-2xl w-full max-w-lg flex flex-col" style={{ maxHeight: '90vh' }}>
+        {/* Header */}
+        <div className="flex justify-between items-center px-5 py-4 border-b border-gray-100 flex-shrink-0">
+          <div>
+            <h3 className="font-bold text-gray-800">Editar lote</h3>
+            <p className="text-xs text-gray-400 mt-0.5">{lote.nome}</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 text-2xl leading-none p-1">✕</button>
+        </div>
+
+        {/* Conteúdo */}
+        <div className="overflow-y-auto flex-1 px-5 py-4 space-y-4">
+          {/* Identificação */}
+          <div>
+            <p className="text-xs font-bold text-green-700 tracking-widest mb-3">IDENTIFICAÇÃO</p>
+            <div className="space-y-3">
+              <Campo label="Nome do lote" value={nome} onChange={setNome} placeholder="Ex: Lote A – Nelore" />
+              <Campo label="Invernada / Curral" value={invernada} onChange={setInvernada} placeholder="Ex: Curral 3" />
+            </div>
+          </div>
+
+          {/* Datas */}
+          <div>
+            <p className="text-xs font-bold text-green-700 tracking-widest mb-3">DATAS</p>
+            <div className="space-y-3">
+              <Campo label="Data de início" type="date" value={dataInicio} onChange={setDataInicio} />
+              <Campo label="Previsão de abate" type="date" value={previsaoAbate} onChange={setPrevisaoAbate} />
+            </div>
+          </div>
+
+          {/* Dados do lote */}
+          <div>
+            <p className="text-xs font-bold text-green-700 tracking-widest mb-3">DADOS DO LOTE</p>
+            <div className="space-y-3">
+              <Campo label="Quantidade de bois" type="number" value={quantidadeBois} onChange={setQuantidadeBois} placeholder="Ex: 120" min="1" />
+              <Campo label="Peso médio de entrada (kg)" type="number" value={pesoEntrada} onChange={setPesoEntrada} placeholder="Ex: 350" min="1" />
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 mb-1">Tratos por dia</label>
+                <div className="flex gap-2">
+                  {['1', '2', '3'].map(n => (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() => setNumTratosDia(n)}
+                      className={`flex-1 py-3 rounded-xl font-bold text-sm transition ${
+                        numTratosDia === n
+                          ? 'bg-green-700 text-white'
+                          : 'bg-gray-100 text-gray-600 active:bg-gray-200'
+                      }`}
+                    >
+                      {n}x
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {erro && <p className="text-red-500 text-sm text-center">{erro}</p>}
+        </div>
+
+        {/* Rodapé */}
+        <div className="flex-shrink-0 px-5 py-4 border-t border-gray-100 bg-white">
+          <button
+            onClick={salvar}
+            disabled={salvando}
+            className="w-full bg-green-700 text-white font-bold py-4 rounded-2xl disabled:opacity-50 active:bg-green-800"
+          >
+            {salvando ? 'Salvando...' : 'Salvar alterações'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Campo({ label, value, onChange, placeholder, type = 'text', min }: {
+  label: string; value: string; onChange: (v: string) => void;
+  placeholder?: string; type?: string; min?: string;
+}) {
+  return (
+    <div>
+      <label className="block text-xs font-semibold text-gray-500 mb-1">{label}</label>
+      <input
+        type={type}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        placeholder={placeholder}
+        min={min}
+        className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+      />
     </div>
   );
 }

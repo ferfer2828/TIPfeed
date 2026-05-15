@@ -85,6 +85,7 @@ export default function TratoGerentePage() {
 
   const totalConcluidos = lotesInfo.filter(i => i.tratosHoje.length >= i.lote.numTratosDia).length;
   const totalPendentes = lotesInfo.length - totalConcluidos;
+  const totalKgHoje = lotesInfo.reduce((s, i) => s + i.tratosHoje.reduce((ts, t) => ts + t.quantidadeEfetiva, 0), 0);
 
   return (
     <div className="min-h-full bg-gray-50">
@@ -105,7 +106,7 @@ export default function TratoGerentePage() {
         </div>
 
         {/* Resumo */}
-        <div className="flex gap-3 mt-4">
+        <div className="flex gap-2 mt-4">
           <div className="flex-1 bg-green-600 rounded-xl p-3 text-center">
             <p className="text-2xl font-extrabold text-white">{totalConcluidos}</p>
             <p className="text-xs text-green-200">Concluídos</p>
@@ -114,11 +115,15 @@ export default function TratoGerentePage() {
             <p className="text-2xl font-extrabold text-white">{totalPendentes}</p>
             <p className="text-xs text-white/80">Pendentes</p>
           </div>
-          <div className="flex-1 bg-green-600 rounded-xl p-3 text-center">
-            <p className="text-2xl font-extrabold text-white">{lotesInfo.length}</p>
-            <p className="text-xs text-green-200">Total</p>
-          </div>
         </div>
+
+        {/* Total kg lançados hoje */}
+        {totalKgHoje > 0 && (
+          <div className="mt-2 bg-white/10 rounded-xl px-4 py-3 flex items-center justify-between">
+            <p className="text-green-200 text-sm font-semibold">🌾 Total lançado hoje</p>
+            <p className="text-white text-xl font-extrabold">{totalKgHoje.toLocaleString('pt-BR')} kg</p>
+          </div>
+        )}
       </div>
 
       {/* Lista de lotes */}
@@ -327,45 +332,39 @@ function ModalLancarTrato({ lote, tratosHoje: tratosIniciais, dietaHoje, usuario
     const qtd = Math.ceil(Number(quantidade));
     if (!qtd || qtd <= 0) { setErro('Informe a quantidade em kg.'); return; }
     if (todosFeitos) { setErro('Todos os tratos do dia já foram lançados.'); return; }
+
+    const novoTrato: Trato = {
+      id: `${lote.id}_${hoje}_${tratoNum}_${Date.now()}`,
+      loteId: lote.id,
+      fazendaId: lote.fazendaId,
+      data: hoje,
+      numeroTrato: tratoNum,
+      quantidadeEfetiva: qtd,
+      funcionarioId: usuario.uid,
+      funcionarioNome: usuario.nome,
+      criadoEm: new Date().toISOString(),
+    };
+
+    // Atualiza UI imediatamente
+    setTratos(prev => [...prev, novoTrato]);
+    setTratoSalvoQtd(qtd);
+    setFase('cocho');
+
+    // Salva em background
     setSalvando(true);
-    try {
-      const novoTrato: Trato = {
-        id: `${lote.id}_${hoje}_${tratoNum}_${Date.now()}`,
-        loteId: lote.id,
-        fazendaId: lote.fazendaId,
-        data: hoje,
-        numeroTrato: tratoNum,
-        quantidadeEfetiva: qtd,
-        funcionarioId: usuario.uid,
-        funcionarioNome: usuario.nome,
-        criadoEm: new Date().toISOString(),
-      };
-      await salvarTrato(novoTrato);
-      setTratos(prev => [...prev, novoTrato]);
-      setTratoSalvoQtd(qtd);
-      setFase('cocho');
-    } catch {
-      setErro('Erro ao salvar. Tente novamente.');
-    } finally {
-      setSalvando(false);
-    }
+    salvarTrato(novoTrato)
+      .catch(err => console.warn('Trato salvo localmente:', err))
+      .finally(() => setSalvando(false));
   }
 
   async function confirmarEdicao(trato: Trato) {
     const qtd = Math.ceil(Number(editQtd));
     if (!qtd || qtd <= 0) { setErro('Informe uma quantidade válida.'); return; }
     setErro('');
-    setSalvando(true);
-    try {
-      const atualizado = { ...trato, quantidadeEfetiva: qtd };
-      await salvarTrato(atualizado);
-      setTratos(prev => prev.map(t => t.id === trato.id ? atualizado : t));
-      setEditandoId(null);
-    } catch {
-      setErro('Erro ao editar. Tente novamente.');
-    } finally {
-      setSalvando(false);
-    }
+    const atualizado = { ...trato, quantidadeEfetiva: qtd };
+    setTratos(prev => prev.map(t => t.id === trato.id ? atualizado : t));
+    setEditandoId(null);
+    salvarTrato(atualizado).catch(err => console.warn('Edição salva localmente:', err));
   }
 
   async function salvarCochoModal(pular = false) {
@@ -374,24 +373,17 @@ function ModalLancarTrato({ lote, tratosHoje: tratosIniciais, dietaHoje, usuario
       if (isNaN(v) || v < 0 || v > 3) { setErro('Digite 0, 1, 2 ou 3.'); return; }
       setErro('');
       setSalvandoCocho(true);
-      try {
-        await salvarLeituraCocho({
-          id: `${lote.id}_cocho_${hoje}`,
-          loteId: lote.id,
-          fazendaId: lote.fazendaId,
-          data: hoje,
-          valor: v as 0 | 1 | 2 | 3,
-          funcionarioId: usuario.uid,
-          funcionarioNome: usuario.nome,
-          criadoEm: new Date().toISOString(),
-        });
-      } catch {
-        setErro('Erro ao salvar cocho.');
-        setSalvandoCocho(false);
-        return;
-      } finally {
-        setSalvandoCocho(false);
-      }
+      salvarLeituraCocho({
+        id: `${lote.id}_cocho_${hoje}`,
+        loteId: lote.id,
+        fazendaId: lote.fazendaId,
+        data: hoje,
+        valor: v as 0 | 1 | 2 | 3,
+        funcionarioId: usuario.uid,
+        funcionarioNome: usuario.nome,
+        criadoEm: new Date().toISOString(),
+      }).catch(err => console.warn('Cocho salvo localmente:', err))
+        .finally(() => setSalvandoCocho(false));
     }
     onSalvo();
   }

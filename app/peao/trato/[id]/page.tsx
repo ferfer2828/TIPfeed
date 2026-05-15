@@ -27,22 +27,40 @@ export default function TratoPage() {
 
   const [quantidade, setQuantidade] = useState('');
   const [carregando, setCarregando] = useState(true);
+  const [carregamentoLento, setCarregamentoLento] = useState(false);
+  const [offline, setOffline] = useState(!navigator.onLine);
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState('');
 
-  // Fases: trato → cocho → concluido
   const [fase, setFase] = useState<Fase>('trato');
   const [cochoVal, setCochoVal] = useState('');
   const [salvandoCocho, setSalvandoCocho] = useState(false);
 
-  // Edição inline de trato existente
   const [editandoId, setEditandoId] = useState<string | null>(null);
   const [editQtd, setEditQtd] = useState('');
 
   const hoje = format(new Date(), 'yyyy-MM-dd');
 
+  // Detecta mudança de conexão
+  useEffect(() => {
+    const onOnline = () => setOffline(false);
+    const onOffline = () => setOffline(true);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+    return () => {
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
+    };
+  }, []);
+
   useEffect(() => {
     if (!usuario) return;
+
+    // Timeout: se demorar mais de 5s, mostra aviso de lentidão
+    const lento = setTimeout(() => setCarregamentoLento(true), 5000);
+    // Timeout máximo: 12s força saída do loading (não trava para sempre)
+    const maxLoad = setTimeout(() => setCarregando(false), 12000);
+
     getLote(id).then(async l => {
       if (!l) { setCarregando(false); return; }
       const [d, t, lc] = await Promise.all([
@@ -63,10 +81,16 @@ export default function TratoPage() {
         if (sugestao > 0) setQuantidade(String(sugestao));
       }
     }).catch(e => console.error('Erro ao carregar trato:', e))
-      .finally(() => setCarregando(false));
+      .finally(() => {
+        clearTimeout(lento);
+        clearTimeout(maxLoad);
+        setCarregando(false);
+      });
+
+    return () => { clearTimeout(lento); clearTimeout(maxLoad); };
   }, [id, hoje, usuario]);
 
-  // ─── Lançar novo trato ───────────────────────────────────────────────────────
+  // ─── Lançar trato (otimista — funciona offline) ───────────────────────────────
 
   async function lancar(e: React.FormEvent) {
     e.preventDefault();
@@ -81,27 +105,27 @@ export default function TratoPage() {
       return;
     }
 
+    const trato: Trato = {
+      id: `${id}_${hoje}_${tratoNum}_${Date.now()}`,
+      loteId: id,
+      fazendaId: lote.fazendaId,
+      data: hoje,
+      numeroTrato: tratoNum,
+      quantidadeEfetiva: qtd,
+      funcionarioId: usuario.uid,
+      funcionarioNome: usuario.nome,
+      criadoEm: new Date().toISOString(),
+    };
+
+    // Atualiza UI imediatamente — não bloqueia aguardando o servidor
+    setTratosHoje(prev => [...prev, trato]);
+    setFase('cocho');
+
+    // Salva em background (com persistentLocalCache, já está salvo localmente)
     setSalvando(true);
-    try {
-      const trato: Trato = {
-        id: `${id}_${hoje}_${tratoNum}_${Date.now()}`,
-        loteId: id,
-        fazendaId: lote.fazendaId,
-        data: hoje,
-        numeroTrato: tratoNum,
-        quantidadeEfetiva: qtd,
-        funcionarioId: usuario.uid,
-        funcionarioNome: usuario.nome,
-        criadoEm: new Date().toISOString(),
-      };
-      await salvarTrato(trato);
-      setTratosHoje(prev => [...prev, trato]);
-      setFase('cocho');
-    } catch {
-      setErro('Erro ao salvar. Tente novamente.');
-    } finally {
-      setSalvando(false);
-    }
+    salvarTrato(trato)
+      .catch(err => console.warn('Trato salvo no cache local, sincronizará quando houver conexão:', err))
+      .finally(() => setSalvando(false));
   }
 
   // ─── Editar trato existente ───────────────────────────────────────────────────
@@ -110,68 +134,81 @@ export default function TratoPage() {
     const qtd = Math.ceil(Number(editQtd));
     if (!qtd || qtd <= 0) { setErro('Informe uma quantidade válida.'); return; }
     setErro('');
-    setSalvando(true);
-    try {
-      const atualizado = { ...trato, quantidadeEfetiva: qtd };
-      await salvarTrato(atualizado);
-      setTratosHoje(prev => prev.map(t => t.id === trato.id ? atualizado : t));
-      setEditandoId(null);
-    } catch {
-      setErro('Erro ao editar. Tente novamente.');
-    } finally {
-      setSalvando(false);
-    }
+    const atualizado = { ...trato, quantidadeEfetiva: qtd };
+    setTratosHoje(prev => prev.map(t => t.id === trato.id ? atualizado : t));
+    setEditandoId(null);
+    salvarTrato(atualizado).catch(err => console.warn('Edição salva localmente:', err));
   }
 
-  // ─── Leitura de cocho ─────────────────────────────────────────────────────────
+  // ─── Salvar cocho (otimista) ──────────────────────────────────────────────────
 
   async function salvarCocho(pular = false) {
     if (!lote || !usuario) return;
     if (!pular) {
       const v = parseInt(cochoVal);
-      if (isNaN(v) || v < 0 || v > 3) {
-        setErro('Digite 0, 1, 2 ou 3.');
-        return;
-      }
+      if (isNaN(v) || v < 0 || v > 3) { setErro('Digite 0, 1, 2 ou 3.'); return; }
       setErro('');
+      const leitura: LeituraCocho = {
+        id: `${id}_cocho_${hoje}`,
+        loteId: id,
+        fazendaId: lote.fazendaId,
+        data: hoje,
+        valor: v as 0 | 1 | 2 | 3,
+        funcionarioId: usuario.uid,
+        funcionarioNome: usuario.nome,
+        criadoEm: new Date().toISOString(),
+      };
+      // Salva em background
       setSalvandoCocho(true);
-      try {
-        await salvarLeituraCocho({
-          id: `${id}_cocho_${hoje}`,
-          loteId: id,
-          fazendaId: lote.fazendaId,
-          data: hoje,
-          valor: v as 0 | 1 | 2 | 3,
-          funcionarioId: usuario.uid,
-          funcionarioNome: usuario.nome,
-          criadoEm: new Date().toISOString(),
-        });
-      } catch {
-        setErro('Erro ao salvar cocho.');
-        setSalvandoCocho(false);
-        return;
-      } finally {
-        setSalvandoCocho(false);
-      }
+      salvarLeituraCocho(leitura)
+        .catch(err => console.warn('Cocho salvo localmente:', err))
+        .finally(() => setSalvandoCocho(false));
     }
     setFase('concluido');
     setTimeout(() => router.replace('/peao'), 1200);
   }
 
-  // ─── Loading / Not found ──────────────────────────────────────────────────────
+  // ─── Loading ──────────────────────────────────────────────────────────────────
 
   if (carregando) {
     return (
-      <div className="flex h-full items-center justify-center bg-gray-50">
+      <div className="flex flex-col h-full items-center justify-center bg-gray-50 gap-4 px-6">
+        {offline && (
+          <div className="bg-orange-50 border border-orange-200 rounded-xl px-4 py-3 text-center mb-2">
+            <p className="text-orange-700 font-bold text-sm">📶 Sem conexão</p>
+            <p className="text-orange-600 text-xs mt-0.5">Usando dados em cache</p>
+          </div>
+        )}
         <p className="text-gray-400">Carregando...</p>
+        {carregamentoLento && (
+          <div className="text-center">
+            <p className="text-xs text-gray-400 mb-3">Demorando mais que o normal…</p>
+            <button
+              onClick={() => { setCarregando(false); }}
+              className="bg-green-700 text-white font-bold px-5 py-2.5 rounded-xl text-sm"
+            >
+              Continuar offline
+            </button>
+          </div>
+        )}
       </div>
     );
   }
 
   if (!lote) {
     return (
-      <div className="flex flex-col h-full items-center justify-center bg-gray-50 gap-4">
-        <p className="text-gray-400">Lote não encontrado.</p>
+      <div className="flex flex-col h-full items-center justify-center bg-gray-50 gap-4 px-6">
+        {offline ? (
+          <>
+            <p className="text-4xl">📶</p>
+            <p className="text-gray-600 font-bold">Sem conexão</p>
+            <p className="text-gray-400 text-sm text-center">
+              Os dados deste lote não estão em cache. Conecte-se e tente novamente.
+            </p>
+          </>
+        ) : (
+          <p className="text-gray-400">Lote não encontrado.</p>
+        )}
         <button onClick={() => router.back()} className="bg-green-700 text-white font-bold px-6 py-3 rounded-xl">
           Voltar
         </button>
@@ -198,6 +235,7 @@ export default function TratoPage() {
         <div className="bg-green-50 border-2 border-green-400 rounded-2xl p-10 text-center w-full max-w-sm">
           <p className="text-5xl mb-3">✅</p>
           <p className="font-bold text-xl text-green-700">Tudo registrado!</p>
+          {offline && <p className="text-xs text-orange-500 mt-1">Salvo offline · sincronizará em breve</p>}
           <p className="text-sm text-green-600 mt-2">Voltando...</p>
         </div>
       </div>
@@ -220,7 +258,12 @@ export default function TratoPage() {
         </div>
 
         <div className="px-4 py-5 space-y-4">
-          {/* Confirmação do trato */}
+          {offline && (
+            <div className="bg-orange-50 border border-orange-200 rounded-xl px-3 py-2 text-center">
+              <p className="text-xs text-orange-700 font-semibold">📶 Offline — dados salvos localmente</p>
+            </div>
+          )}
+
           <div className="bg-green-50 border border-green-300 rounded-2xl p-3 flex items-center gap-3">
             <span className="text-2xl">✅</span>
             <div>
@@ -231,7 +274,6 @@ export default function TratoPage() {
             </div>
           </div>
 
-          {/* Input do cocho */}
           <div className="bg-white rounded-2xl shadow-sm p-5">
             <p className="text-sm font-bold text-gray-600 mb-1 text-center">Como está o cocho?</p>
             <p className="text-xs text-gray-400 text-center mb-4">
@@ -290,6 +332,13 @@ export default function TratoPage() {
 
   return (
     <div className="min-h-full bg-gray-50">
+      {/* Banner offline */}
+      {offline && (
+        <div className="bg-orange-500 px-4 py-2 text-center">
+          <p className="text-white text-xs font-semibold">📶 Sem conexão — tratos serão sincronizados ao reconectar</p>
+        </div>
+      )}
+
       {/* Header */}
       <div className="bg-green-700 px-4 pt-10 pb-6">
         <div className="flex items-center gap-3 mb-3">
@@ -333,7 +382,6 @@ export default function TratoPage() {
               )}
             </div>
 
-            {/* Tratos lançados hoje com edição inline */}
             {tratosHoje.length > 0 && (
               <div className="mt-3 pt-3 border-t border-gray-100 space-y-1.5">
                 <p className="text-xs font-bold text-gray-400">JÁ LANÇADOS HOJE</p>
@@ -353,17 +401,12 @@ export default function TratoPage() {
                         <span className="text-xs text-gray-400 flex-shrink-0">kg</span>
                         <button
                           onClick={() => confirmarEdicao(t)}
-                          disabled={salvando}
-                          className="bg-green-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg active:bg-green-700 disabled:opacity-60"
-                        >
-                          ✓
-                        </button>
+                          className="bg-green-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg active:bg-green-700"
+                        >✓</button>
                         <button
                           onClick={() => { setEditandoId(null); setErro(''); }}
                           className="text-gray-400 text-xs px-2 py-1.5"
-                        >
-                          ✕
-                        </button>
+                        >✕</button>
                       </div>
                     ) : (
                       <div className="flex justify-between items-center bg-gray-50 rounded-lg px-3 py-2 text-sm">
@@ -373,7 +416,6 @@ export default function TratoPage() {
                           <button
                             onClick={() => { setEditandoId(t.id); setEditQtd(String(t.quantidadeEfetiva)); setErro(''); }}
                             className="text-gray-300 active:text-gray-500 p-1"
-                            title="Editar"
                           >
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                               <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
@@ -396,7 +438,7 @@ export default function TratoPage() {
           <div className="bg-yellow-50 border border-yellow-200 rounded-2xl p-4">
             <p className="font-bold text-yellow-700 text-sm">⚠️ Sem dieta configurada</p>
             <p className="text-yellow-600 text-xs mt-1">
-              O gerente ainda não configurou a dieta para este lote. Informe a quantidade manualmente.
+              O gerente ainda não configurou a dieta. Informe a quantidade manualmente.
             </p>
           </div>
         )}
@@ -463,8 +505,7 @@ export default function TratoPage() {
                         label === 'Sugerido' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
                       }`}
                     >
-                      {label}
-                      <br />
+                      {label}<br />
                       <span className={label === 'Sugerido' ? 'text-green-600' : 'text-gray-400'}>{v}kg</span>
                     </button>
                   ))
@@ -478,8 +519,7 @@ export default function TratoPage() {
                         onClick={() => setQuantidade(String(v))}
                         className="flex-1 bg-gray-100 text-gray-600 text-xs font-bold py-2.5 rounded-xl active:bg-gray-200"
                       >
-                        {Math.round(f * 100)}%
-                        <br />
+                        {Math.round(f * 100)}%<br />
                         <span className="text-gray-400">{v}kg</span>
                       </button>
                     );
