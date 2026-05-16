@@ -2,8 +2,10 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { criarConvite, listarPeoes, listarConvites, getNomeFazenda } from '@/lib/convites';
+import { getFazenda, salvarFazenda } from '@/lib/firestore';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import type { Fazenda } from '@/types';
 
 export default function EquipePage() {
   const { usuario } = useAuth();
@@ -15,21 +17,58 @@ export default function EquipePage() {
   const [erroConvite, setErroConvite] = useState('');
   const [copiado, setCopiado] = useState(false);
   const [copiadoId, setCopiadoId] = useState<string | null>(null);
-  const [aba, setAba] = useState<'peoes' | 'convites'>('peoes');
+  const [aba, setAba] = useState<'peoes' | 'convites' | 'fazenda'>('peoes');
+
+  const [fazenda, setFazenda] = useState<Fazenda | null>(null);
+  const [editNomeFazenda, setEditNomeFazenda] = useState('');
+  const [editLocalizacao, setEditLocalizacao] = useState('');
+  const [salvandoFazenda, setSalvandoFazenda] = useState(false);
+  const [salvoFazenda, setSalvoFazenda] = useState(false);
+  const [erroFazenda, setErroFazenda] = useState('');
 
   async function carregar() {
     if (!usuario) return;
     try {
-      const [p, c] = await Promise.all([
+      const [p, c, faz] = await Promise.all([
         listarPeoes(usuario.fazendaId),
         listarConvites(usuario.fazendaId),
+        getFazenda(usuario.fazendaId),
       ]);
       setPeoes(p);
       setConvites(c);
+      if (faz) {
+        setFazenda(faz);
+        setEditNomeFazenda(faz.nome);
+        setEditLocalizacao(faz.localizacao ?? '');
+      }
     } catch (e) {
       console.error('Erro ao carregar equipe:', e);
     } finally {
       setCarregando(false);
+    }
+  }
+
+  async function salvarConfigFazenda() {
+    if (!usuario || !editNomeFazenda.trim()) return;
+    setSalvandoFazenda(true);
+    setErroFazenda('');
+    try {
+      const faz: Fazenda = {
+        id: usuario.fazendaId,
+        nome: editNomeFazenda.trim(),
+        localizacao: editLocalizacao.trim() || undefined,
+        donoUid: usuario.uid,
+        criadoEm: fazenda?.criadoEm ?? new Date().toISOString(),
+        atualizadoEm: new Date().toISOString(),
+      };
+      await salvarFazenda(faz);
+      setFazenda(faz);
+      setSalvoFazenda(true);
+      setTimeout(() => setSalvoFazenda(false), 2500);
+    } catch {
+      setErroFazenda('Erro ao salvar. Tente novamente.');
+    } finally {
+      setSalvandoFazenda(false);
     }
   }
 
@@ -125,22 +164,64 @@ export default function EquipePage() {
 
         {/* Abas */}
         <div className="flex bg-white rounded-2xl p-1 mb-4 shadow-sm">
-          <button
-            onClick={() => setAba('peoes')}
-            className={`flex-1 py-2 rounded-xl text-sm font-bold transition ${aba === 'peoes' ? 'bg-green-700 text-white' : 'text-gray-400'}`}
-          >
+          <button onClick={() => setAba('peoes')}
+            className={`flex-1 py-2 rounded-xl text-xs font-bold transition ${aba === 'peoes' ? 'bg-green-700 text-white' : 'text-gray-400'}`}>
             Peões ({peoes.length})
           </button>
-          <button
-            onClick={() => setAba('convites')}
-            className={`flex-1 py-2 rounded-xl text-sm font-bold transition ${aba === 'convites' ? 'bg-green-700 text-white' : 'text-gray-400'}`}
-          >
+          <button onClick={() => setAba('convites')}
+            className={`flex-1 py-2 rounded-xl text-xs font-bold transition ${aba === 'convites' ? 'bg-green-700 text-white' : 'text-gray-400'}`}>
             Convites ({convites.length})
+          </button>
+          <button onClick={() => setAba('fazenda')}
+            className={`flex-1 py-2 rounded-xl text-xs font-bold transition ${aba === 'fazenda' ? 'bg-green-700 text-white' : 'text-gray-400'}`}>
+            🏡 Fazenda
           </button>
         </div>
 
         {carregando ? (
           <p className="text-center text-gray-400 py-6">Carregando...</p>
+        ) : aba === 'fazenda' ? (
+          <div className="space-y-3">
+            <div className="bg-white rounded-2xl shadow-sm p-4">
+              <p className="text-xs font-bold text-green-700 tracking-widest mb-3">DADOS DA FAZENDA</p>
+              <div className="space-y-3 mb-3">
+                <div>
+                  <label className="text-xs text-gray-500 font-semibold block mb-1">Nome da fazenda</label>
+                  <input
+                    type="text"
+                    value={editNomeFazenda}
+                    onChange={e => setEditNomeFazenda(e.target.value)}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                    placeholder="Ex: Fazenda Santa Maria"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 font-semibold block mb-1">Localização (opcional)</label>
+                  <input
+                    type="text"
+                    value={editLocalizacao}
+                    onChange={e => setEditLocalizacao(e.target.value)}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                    placeholder="Ex: Ribeirão Preto - SP"
+                  />
+                </div>
+              </div>
+              {erroFazenda && <p className="text-red-500 text-xs mb-2">{erroFazenda}</p>}
+              {salvoFazenda && <p className="text-green-600 text-xs mb-2 font-semibold">✓ Fazenda atualizada!</p>}
+              <button
+                onClick={salvarConfigFazenda}
+                disabled={salvandoFazenda || !editNomeFazenda.trim()}
+                className="w-full bg-green-700 text-white font-bold py-3 rounded-xl disabled:opacity-50 active:bg-green-800 text-sm"
+              >
+                {salvandoFazenda ? 'Salvando...' : 'Salvar configurações'}
+              </button>
+            </div>
+            {fazenda && (
+              <div className="bg-gray-50 rounded-2xl p-3 text-center">
+                <p className="text-xs text-gray-400">ID da fazenda: <span className="font-mono text-gray-500">{fazenda.id.slice(0, 12)}…</span></p>
+              </div>
+            )}
+          </div>
         ) : aba === 'peoes' ? (
           peoes.length === 0 ? (
             <div className="text-center py-10">

@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { getLotes, salvarLote, inativarLote } from '@/lib/firestore';
+import { getLotes, salvarLote, inativarLote, getLotesInativos, getTratosByLote, getDietaFazenda } from '@/lib/firestore';
 import Link from 'next/link';
 import type { Lote } from '@/types';
 import { format, differenceInDays, addDays } from 'date-fns';
@@ -10,8 +10,12 @@ export default function LotesPage() {
   const { usuario } = useAuth();
   const [lotes, setLotes] = useState<Lote[]>([]);
   const [carregando, setCarregando] = useState(true);
-  const [confirmandoId, setConfirmandoId] = useState<string | null>(null);
   const [editandoLote, setEditandoLote] = useState<Lote | null>(null);
+  const [loteParaEncerrar, setLoteParaEncerrar] = useState<Lote | null>(null);
+
+  const [abaLotes, setAbaLotes] = useState<'ativos' | 'arquivo'>('ativos');
+  const [lotesInativos, setLotesInativos] = useState<Lote[]>([]);
+  const [carregandoArquivo, setCarregandoArquivo] = useState(false);
 
   async function carregar(tentativas = 3) {
     if (!usuario) return;
@@ -28,6 +32,17 @@ export default function LotesPage() {
       }
     }
     setCarregando(false);
+  }
+
+  async function carregarArquivo() {
+    if (!usuario) return;
+    setCarregandoArquivo(true);
+    try {
+      const l = await getLotesInativos(usuario.fazendaId);
+      setLotesInativos(l);
+    } finally {
+      setCarregandoArquivo(false);
+    }
   }
 
   useEffect(() => { if (usuario) carregar(); }, [usuario]);
@@ -47,7 +62,7 @@ export default function LotesPage() {
 
   async function encerrarLote(id: string) {
     await inativarLote(id);
-    setConfirmandoId(null);
+    setLoteParaEncerrar(null);
     carregar();
   }
 
@@ -65,8 +80,65 @@ export default function LotesPage() {
         <p className="text-green-200 text-xs mt-0.5">Ordem de descarregamento</p>
       </div>
 
+      {/* Abas Ativos / Arquivo */}
+      <div className="flex bg-white border-b border-gray-100">
+        <button onClick={() => setAbaLotes('ativos')}
+          className={`flex-1 py-3 text-sm font-bold border-b-2 transition ${abaLotes === 'ativos' ? 'text-green-700 border-green-700' : 'text-gray-400 border-transparent'}`}>
+          🐄 Ativos ({lotes.length})
+        </button>
+        <button onClick={() => { setAbaLotes('arquivo'); if (lotesInativos.length === 0) carregarArquivo(); }}
+          className={`flex-1 py-3 text-sm font-bold border-b-2 transition ${abaLotes === 'arquivo' ? 'text-green-700 border-green-700' : 'text-gray-400 border-transparent'}`}>
+          📁 Arquivo
+        </button>
+      </div>
+
       <div className="px-4 mt-4">
-        {carregando ? (
+        {abaLotes === 'arquivo' ? (
+          carregandoArquivo ? (
+            <p className="text-center text-gray-400 py-10">Carregando...</p>
+          ) : lotesInativos.length === 0 ? (
+            <div className="text-center py-10">
+              <p className="text-4xl mb-3">📁</p>
+              <p className="text-gray-500 font-semibold">Nenhum lote encerrado</p>
+              <p className="text-gray-400 text-sm mt-1">Lotes encerrados aparecem aqui.</p>
+            </div>
+          ) : (
+            <div className="space-y-3 mb-4">
+              {lotesInativos.map(lote => {
+                const diasConf = differenceInDays(new Date(lote.atualizadoEm.slice(0, 10)), new Date(lote.dataInicio)) + 1;
+                return (
+                  <div key={lote.id} className="bg-white rounded-2xl shadow-sm p-4 opacity-75">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <p className="font-bold text-gray-700">{lote.nome}</p>
+                        <p className="text-xs text-gray-400">{lote.invernada} · {lote.quantidadeBois} bois</p>
+                        <p className="text-xs text-gray-400 mt-0.5">
+                          {format(new Date(lote.dataInicio + 'T12:00:00'), 'dd/MM/yy')} →{' '}
+                          {format(new Date(lote.atualizadoEm), 'dd/MM/yy')} · {diasConf} dias
+                        </p>
+                      </div>
+                      <span className="text-xs bg-gray-100 text-gray-500 px-2 py-1 rounded-full font-semibold flex-shrink-0">Encerrado</span>
+                    </div>
+                    <div className="mt-2 grid grid-cols-3 gap-2 text-center">
+                      <div className="bg-gray-50 rounded-lg p-2">
+                        <p className="text-xs text-gray-400">Entrada</p>
+                        <p className="text-sm font-bold text-gray-700">{lote.pesoEntrada}kg</p>
+                      </div>
+                      <div className="bg-gray-50 rounded-lg p-2">
+                        <p className="text-xs text-gray-400">Est. saída</p>
+                        <p className="text-sm font-bold text-gray-700">{lote.pesoEntrada + diasConf}kg</p>
+                      </div>
+                      <div className="bg-gray-50 rounded-lg p-2">
+                        <p className="text-xs text-gray-400">Tratos/dia</p>
+                        <p className="text-sm font-bold text-gray-700">{lote.numTratosDia}x</p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )
+        ) : carregando ? (
           <p className="text-center text-gray-400 py-10">Carregando...</p>
         ) : lotes.length === 0 ? (
           <div className="text-center py-10">
@@ -168,7 +240,7 @@ export default function LotesPage() {
                         ✏️ Editar
                       </button>
                       <button
-                        onClick={() => setConfirmandoId(lote.id)}
+                        onClick={() => setLoteParaEncerrar(lote)}
                         className="text-xs bg-red-50 text-red-600 font-semibold py-2 px-3 rounded-xl active:bg-red-100"
                       >
                         Encerrar
@@ -181,11 +253,13 @@ export default function LotesPage() {
           </div>
         )}
 
-        <Link href="/gerente/lotes/novo">
-          <button className="w-full bg-green-700 text-white font-bold py-4 rounded-2xl active:bg-green-800 mb-6">
-            + Novo lote
-          </button>
-        </Link>
+        {abaLotes === 'ativos' && (
+          <Link href="/gerente/lotes/novo">
+            <button className="w-full bg-green-700 text-white font-bold py-4 rounded-2xl active:bg-green-800 mb-6">
+              + Novo lote
+            </button>
+          </Link>
+        )}
       </div>
 
       {/* Modal Editar Lote */}
@@ -200,29 +274,128 @@ export default function LotesPage() {
         />
       )}
 
-      {/* Modal de confirmação de encerramento */}
-      {confirmandoId && (
-        <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-sm">
-            <h3 className="font-bold text-gray-800 text-lg mb-2">Encerrar lote?</h3>
-            <p className="text-gray-500 text-sm mb-6">O lote será marcado como inativo. Esta ação não pode ser desfeita.</p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setConfirmandoId(null)}
-                className="flex-1 bg-gray-100 text-gray-700 font-semibold py-3 rounded-xl"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={() => encerrarLote(confirmandoId)}
-                className="flex-1 bg-red-600 text-white font-bold py-3 rounded-xl"
-              >
-                Encerrar
-              </button>
-            </div>
-          </div>
-        </div>
+      {/* Modal de encerramento enriquecido */}
+      {loteParaEncerrar && usuario && (
+        <ModalEncerrarLote
+          lote={loteParaEncerrar}
+          fazendaId={usuario.fazendaId}
+          onEncerrar={encerrarLote}
+          onClose={() => setLoteParaEncerrar(null)}
+        />
       )}
+    </div>
+  );
+}
+
+// ─── Modal Encerrar Lote ───────────────────────────────────────────────────────
+
+function ModalEncerrarLote({ lote, fazendaId, onEncerrar, onClose }: {
+  lote: Lote;
+  fazendaId: string;
+  onEncerrar: (id: string) => Promise<void>;
+  onClose: () => void;
+}) {
+  const [carregando, setCarregando] = useState(true);
+  const [encerrando, setEncerrando] = useState(false);
+  const [totalKg, setTotalKg] = useState(0);
+  const [custoTotal, setCustoTotal] = useState<number | null>(null);
+
+  const diasConfinamento = differenceInDays(new Date(), new Date(lote.dataInicio)) + 1;
+  const pesoEstimadoSaida = lote.pesoEntrada + diasConfinamento;
+  const kgGanho = (pesoEstimadoSaida - lote.pesoEntrada) * lote.quantidadeBois;
+  const arrobas = kgGanho / 15;
+
+  useEffect(() => {
+    async function carregar() {
+      try {
+        const [tratos, dietaFaz] = await Promise.all([
+          getTratosByLote(lote.id, fazendaId),
+          getDietaFazenda(fazendaId),
+        ]);
+        const total = tratos.reduce((s, t) => s + t.quantidadeEfetiva, 0);
+        setTotalKg(total);
+        if (dietaFaz && dietaFaz.composicao.length > 0) {
+          const custoKg = dietaFaz.composicao.reduce((s, c) => s + c.precoKg * c.percentual / 100, 0);
+          setCustoTotal(total * custoKg);
+        }
+      } finally {
+        setCarregando(false);
+      }
+    }
+    carregar();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function confirmar() {
+    setEncerrando(true);
+    await onEncerrar(lote.id);
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50">
+      <div className="bg-white rounded-t-2xl w-full max-w-lg">
+        <div className="flex justify-between items-center px-5 py-4 border-b border-gray-100">
+          <h3 className="font-bold text-gray-800">🏁 Encerrar lote</h3>
+          <button onClick={onClose} className="text-gray-400 text-2xl p-1 leading-none">✕</button>
+        </div>
+
+        <div className="px-5 py-4">
+          <div className="bg-orange-50 border border-orange-200 rounded-xl p-3 mb-4">
+            <p className="font-bold text-orange-700">{lote.nome}</p>
+            <p className="text-xs text-orange-600">{lote.invernada} · {lote.quantidadeBois} bois</p>
+          </div>
+
+          {carregando ? (
+            <div className="py-8 text-center">
+              <div className="w-8 h-8 border-4 border-green-600 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+              <p className="text-gray-400 text-sm">Calculando resumo...</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              <div className="bg-gray-50 rounded-xl p-3 text-center">
+                <p className="text-xs text-gray-400">Dias de confinamento</p>
+                <p className="text-xl font-extrabold text-gray-800">{diasConfinamento}</p>
+              </div>
+              <div className="bg-gray-50 rounded-xl p-3 text-center">
+                <p className="text-xs text-gray-400">Total consumido</p>
+                <p className="text-xl font-extrabold text-gray-800">
+                  {totalKg >= 1000 ? `${(totalKg / 1000).toFixed(1)}t` : `${totalKg}kg`}
+                </p>
+              </div>
+              <div className="bg-green-50 rounded-xl p-3 text-center">
+                <p className="text-xs text-gray-400">Peso est. saída</p>
+                <p className="text-xl font-extrabold text-green-700">{pesoEstimadoSaida}kg/boi</p>
+                <p className="text-xs text-gray-400">≈ {(pesoEstimadoSaida / 15).toFixed(1)}@</p>
+              </div>
+              <div className={`rounded-xl p-3 text-center ${custoTotal ? 'bg-blue-50' : 'bg-gray-50'}`}>
+                <p className="text-xs text-gray-400">Custo total est.</p>
+                <p className="text-xl font-extrabold text-blue-700">
+                  {custoTotal
+                    ? `R$ ${custoTotal.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
+                    : '—'}
+                </p>
+                {custoTotal && arrobas > 0 && (
+                  <p className="text-xs text-gray-400">R$ {(custoTotal / arrobas).toFixed(0)}/@</p>
+                )}
+              </div>
+            </div>
+          )}
+
+          <p className="text-xs text-gray-400 text-center mb-4">
+            ⚠️ Esta ação não pode ser desfeita. O lote ficará no histórico.
+          </p>
+        </div>
+
+        <div className="px-5 pb-6 flex gap-3">
+          <button onClick={onClose} disabled={encerrando}
+            className="flex-1 bg-gray-100 text-gray-700 font-bold py-3.5 rounded-xl">
+            Cancelar
+          </button>
+          <button onClick={confirmar} disabled={carregando || encerrando}
+            className="flex-1 bg-red-600 text-white font-bold py-3.5 rounded-xl disabled:opacity-60 active:bg-red-700">
+            {encerrando ? 'Encerrando...' : '🏁 Encerrar lote'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -241,6 +414,7 @@ function ModalEditarLote({ lote, onClose, onSalvo }: {
   const [quantidadeBois, setQuantidadeBois] = useState(String(lote.quantidadeBois));
   const [pesoEntrada, setPesoEntrada] = useState(String(lote.pesoEntrada));
   const [numTratosDia, setNumTratosDia] = useState(String(lote.numTratosDia));
+  const [trataDomingo, setTrataDomingo] = useState(lote.trataDomingo ?? false);
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState('');
 
@@ -262,6 +436,7 @@ function ModalEditarLote({ lote, onClose, onSalvo }: {
         quantidadeBois: Number(quantidadeBois),
         pesoEntrada: Number(pesoEntrada),
         numTratosDia: Number(numTratosDia),
+        trataDomingo,
         atualizadoEm: new Date().toISOString(),
       };
       await salvarLote(loteAtualizado);
@@ -327,6 +502,22 @@ function ModalEditarLote({ lote, onClose, onSalvo }: {
                       }`}
                     >
                       {n}x
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 mb-1">Trata no domingo?</label>
+                <div className="flex gap-2">
+                  {([true, false] as const).map(valor => (
+                    <button key={String(valor)} type="button" onClick={() => setTrataDomingo(valor)}
+                      className={`flex-1 py-3 rounded-xl font-bold text-sm transition ${
+                        trataDomingo === valor
+                          ? valor ? 'bg-green-700 text-white' : 'bg-orange-500 text-white'
+                          : 'bg-gray-100 text-gray-600'
+                      }`}>
+                      {valor ? 'Sim' : 'Não'}
                     </button>
                   ))}
                 </div>

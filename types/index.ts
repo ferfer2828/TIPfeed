@@ -114,3 +114,12 @@ export interface RecebimentoInsumo {
   observacao: string;
   criadoEm: string;
 }
+
+export interface Fazenda {
+  id: string;          // = fazendaId
+  nome: string;
+  localizacao?: string;
+  donoUid: string;
+  criadoEm: string;
+  atualizadoEm?: string;
+}

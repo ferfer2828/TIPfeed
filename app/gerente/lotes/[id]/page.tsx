@@ -1,11 +1,11 @@
 'use client';
 import { useEffect, useState, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { getLote, getTratosByLote, getLeiturasCochoByLote, getDietaDias, getDietaDiaByData, getTratosByLoteData, salvarTrato, salvarLote } from '@/lib/firestore';
+import { getLote, getTratosByLote, getLeiturasCochoByLote, getDietaDias, getDietaDiaByData, getTratosByLoteData, salvarTrato, salvarLote, getDietaFazenda } from '@/lib/firestore';
 import Link from 'next/link';
 import { format, differenceInDays, addDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import type { Lote, Trato, LeituraCocho, DietaDia } from '@/types';
+import type { Lote, Trato, LeituraCocho, DietaDia, DietaFazenda } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
 
 const COCHO_LABELS = ['Limpo', 'Pouco', 'Médio', 'Cheio'];
@@ -19,9 +19,10 @@ export default function LoteDetailPage() {
   const [tratos, setTratos] = useState<Trato[]>([]);
   const [leituras, setLeituras] = useState<LeituraCocho[]>([]);
   const [dietas, setDietas] = useState<DietaDia[]>([]);
+  const [dietaFazenda, setDietaFazenda] = useState<DietaFazenda | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState('');
-  const [aba, setAba] = useState<'tratos' | 'cocho' | 'grafico'>('tratos');
+  const [aba, setAba] = useState<'tratos' | 'cocho' | 'grafico' | 'custo'>('tratos');
   const [modalTrato, setModalTrato] = useState(false);
   const [modalRetroativo, setModalRetroativo] = useState(false);
 
@@ -41,10 +42,11 @@ export default function LoteDetailPage() {
     setErro('');
     try {
       const fid = usuario.fazendaId;
-      const [l, t, lc, d] = await Promise.all([
-        getLote(id), getTratosByLote(id, fid), getLeiturasCochoByLote(id, fid), getDietaDias(id, fid),
+      const [l, t, lc, d, df] = await Promise.all([
+        getLote(id), getTratosByLote(id, fid), getLeiturasCochoByLote(id, fid),
+        getDietaDias(id, fid), getDietaFazenda(fid),
       ]);
-      setLote(l); setTratos(t); setLeituras(lc); setDietas(d);
+      setLote(l); setTratos(t); setLeituras(lc); setDietas(d); setDietaFazenda(df);
     } catch (e: any) {
       console.error('Erro ao carregar lote:', e);
       setErro(e?.message ?? 'Erro ao carregar. Tente novamente.');
@@ -297,6 +299,16 @@ export default function LoteDetailPage() {
                 {lote.pesoEntrada + totalDias} kg
               </p>
             </div>
+            <div className="mt-2.5 pt-2.5 border-t border-gray-100 flex items-center justify-between">
+              <p className="text-xs text-gray-400">Regime de trato</p>
+              <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${
+                lote.trataDomingo ?? false
+                  ? 'bg-green-100 text-green-700'
+                  : 'bg-orange-100 text-orange-700'
+              }`}>
+                {lote.trataDomingo ?? false ? '✅ 7 dias/semana' : '☀️ Não trata domingo'}
+              </span>
+            </div>
           </div>
         )}
       </div>
@@ -321,7 +333,7 @@ export default function LoteDetailPage() {
 
       {/* Abas */}
       <div className="flex bg-white border-b border-gray-200 mt-4">
-        {([['tratos', '🌾 Tratos'], ['cocho', '📊 Cocho'], ['grafico', '📈 Gráfico']] as const).map(([a, label]) => (
+        {([['tratos', '🌾 Tratos'], ['cocho', '📊 Cocho'], ['grafico', '📈 Gráfico'], ['custo', '💰 Custo']] as const).map(([a, label]) => (
           <button key={a} onClick={() => setAba(a)}
             className={`flex-1 py-3 text-xs font-bold border-b-2 transition ${aba === a ? 'text-green-700 border-green-700' : 'text-gray-400 border-transparent'}`}>
             {label}
@@ -330,7 +342,9 @@ export default function LoteDetailPage() {
       </div>
 
       <div className="px-4 py-4">
-        {aba === 'grafico' ? (
+        {aba === 'custo' ? (
+          <CustoTab lote={lote} tratos={tratos} dietas={dietas} dietaFazenda={dietaFazenda} />
+        ) : aba === 'grafico' ? (
           <GraficoTrato tratos={tratos} dietas={dietas} lote={lote} />
         ) : aba === 'tratos' ? (
           datas.length === 0 ? <p className="text-center text-gray-400 py-10">Nenhum trato registrado</p> : (
@@ -809,6 +823,133 @@ function ModalTratoRetroativo({ lote, tratos, dietas, usuario, onClose, onSalvo 
           >
             {isUltimoPendente ? 'Pular e fechar' : 'Pular este dia →'}
           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Custo Tab ────────────────────────────────────────────────────────────────
+
+function CustoTab({ lote, tratos, dietas, dietaFazenda }: {
+  lote: Lote;
+  tratos: Trato[];
+  dietas: DietaDia[];
+  dietaFazenda: DietaFazenda | null;
+}) {
+  const hoje = format(new Date(), 'yyyy-MM-dd');
+  const diasConfinamento = differenceInDays(new Date(), new Date(lote.dataInicio)) + 1;
+  const diasRestantes = differenceInDays(new Date(lote.previsaoAbate), new Date());
+
+  // custo por kg de ração (R$/kg)
+  const custoKgRacao = dietaFazenda && dietaFazenda.composicao.length > 0
+    ? dietaFazenda.composicao.reduce((s, c) => s + c.precoKg * c.percentual / 100, 0)
+    : null;
+
+  const dietaHoje = dietas.find(d => d.data === hoje);
+  const totalKgConsumido = tratos.reduce((s, t) => s + t.quantidadeEfetiva, 0);
+
+  const custoTotalAteHoje = custoKgRacao ? totalKgConsumido * custoKgRacao : null;
+  const custoDiarioPorAnimal = custoKgRacao && dietaHoje && lote.quantidadeBois > 0
+    ? (dietaHoje.quantidadeRecomendada / lote.quantidadeBois) * custoKgRacao
+    : null;
+  const custoProjetadoRestante = custoKgRacao && dietaHoje && diasRestantes > 0
+    ? dietaHoje.quantidadeRecomendada * custoKgRacao * diasRestantes
+    : null;
+
+  const pesoEstimadoAtual = lote.pesoEntrada + diasConfinamento;
+  const kgGanhoTotal = (pesoEstimadoAtual - lote.pesoEntrada) * lote.quantidadeBois;
+  const arrobasAteHoje = kgGanhoTotal / 15;
+  const custoPorArroba = custoTotalAteHoje && arrobasAteHoje > 0
+    ? custoTotalAteHoje / arrobasAteHoje
+    : null;
+
+  const fmt = (v: number) => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmtInt = (v: number) => v.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+
+  if (!dietaFazenda || dietaFazenda.composicao.length === 0) {
+    return (
+      <div className="text-center py-14">
+        <p className="text-3xl mb-2">💰</p>
+        <p className="text-gray-500 font-semibold">Dieta da fazenda não configurada</p>
+        <p className="text-gray-400 text-sm mt-1">Configure a composição em Insumos → Dieta da Fazenda para ver os custos.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Cards principais */}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="bg-white rounded-2xl shadow-sm p-4 text-center">
+          <p className="text-xs text-gray-400">Custo/kg de ração</p>
+          <p className="text-2xl font-extrabold text-green-700 mt-1">
+            {custoKgRacao ? `R$ ${fmt(custoKgRacao)}` : '—'}
+          </p>
+          <p className="text-xs text-gray-400">por kg</p>
+        </div>
+        <div className="bg-white rounded-2xl shadow-sm p-4 text-center">
+          <p className="text-xs text-gray-400">Custo/animal/dia</p>
+          <p className="text-2xl font-extrabold text-blue-700 mt-1">
+            {custoDiarioPorAnimal ? `R$ ${fmt(custoDiarioPorAnimal)}` : '—'}
+          </p>
+          <p className="text-xs text-gray-400">hoje</p>
+        </div>
+        <div className="bg-white rounded-2xl shadow-sm p-4 text-center col-span-2">
+          <p className="text-xs text-gray-400">Total gasto até hoje</p>
+          <p className="text-3xl font-extrabold text-gray-800 mt-1">
+            {custoTotalAteHoje ? `R$ ${fmtInt(custoTotalAteHoje)}` : '—'}
+          </p>
+          <p className="text-xs text-gray-400">{totalKgConsumido.toLocaleString('pt-BR')} kg consumidos</p>
+        </div>
+      </div>
+
+      {/* Custo por arroba */}
+      {custoPorArroba && (
+        <div className="bg-orange-50 border border-orange-200 rounded-2xl p-4 text-center">
+          <p className="text-xs text-orange-600 font-semibold">CUSTO POR ARROBA PRODUZIDA</p>
+          <p className="text-3xl font-extrabold text-orange-700 mt-1">R$ {fmt(custoPorArroba)}</p>
+          <p className="text-xs text-orange-500 mt-1">
+            {arrobasAteHoje.toFixed(1)}@ produzidas até hoje · +{diasConfinamento}kg/boi estimado
+          </p>
+        </div>
+      )}
+
+      {/* Projeção */}
+      {custoProjetadoRestante && (
+        <div className="bg-white rounded-2xl shadow-sm p-4">
+          <p className="text-xs font-bold text-gray-400 mb-3">PROJEÇÃO ATÉ O ABATE</p>
+          <div className="space-y-2">
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-500">Gasto até hoje</span>
+              <span className="font-bold text-gray-800">R$ {fmtInt(custoTotalAteHoje!)}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-500">Projetado ({diasRestantes} dias restantes)</span>
+              <span className="font-bold text-orange-600">+ R$ {fmtInt(custoProjetadoRestante)}</span>
+            </div>
+            <div className="flex justify-between text-sm border-t border-gray-100 pt-2">
+              <span className="font-bold text-gray-700">Total estimado</span>
+              <span className="font-extrabold text-green-700">R$ {fmtInt((custoTotalAteHoje ?? 0) + custoProjetadoRestante)}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Composição da dieta */}
+      <div className="bg-white rounded-2xl shadow-sm p-4">
+        <p className="text-xs font-bold text-gray-400 mb-3">COMPOSIÇÃO DA RAÇÃO</p>
+        <div className="space-y-2">
+          {dietaFazenda.composicao.map(c => (
+            <div key={c.insumoId} className="flex items-center justify-between text-sm">
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-green-500" />
+                <span className="text-gray-700">{c.insumoNome}</span>
+                <span className="text-gray-400 text-xs">{c.percentual}%</span>
+              </div>
+              <span className="font-semibold text-gray-600">R$ {fmt(c.precoKg)}/kg</span>
+            </div>
+          ))}
         </div>
       </div>
     </div>

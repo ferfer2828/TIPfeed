@@ -65,12 +65,21 @@ export default function GerentePainel() {
               Olá, {usuario?.nome.split(' ')[0]} 👋
             </h1>
           </div>
-          <button
-            onClick={signOut}
-            className="text-green-200 text-xs mt-1 border border-green-500 px-3 py-1.5 rounded-lg"
-          >
-            Sair
-          </button>
+          <div className="flex items-center gap-2 mt-1">
+            <Link href="/gerente/perfil">
+              <button className="text-green-200 text-xs border border-green-500 px-2.5 py-1.5 rounded-lg" title="Meu perfil">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                  <circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
+                </svg>
+              </button>
+            </Link>
+            <button
+              onClick={signOut}
+              className="text-green-200 text-xs border border-green-500 px-3 py-1.5 rounded-lg"
+            >
+              Sair
+            </button>
+          </div>
         </div>
       </div>
 

@@ -3,7 +3,7 @@ import {
   query, where, updateDoc, writeBatch, deleteDoc,
 } from 'firebase/firestore';
 import { db } from './firebase';
-import type { Lote, DietaDia, Trato, LeituraCocho, Insumo, RecebimentoInsumo, Cotacao, DietaFazenda } from '@/types';
+import type { Lote, DietaDia, Trato, LeituraCocho, Insumo, RecebimentoInsumo, Cotacao, DietaFazenda, Fazenda } from '@/types';
 
 // ─── Lotes ────────────────────────────────────────────────────────────────────
 
@@ -207,4 +207,31 @@ export async function getDietaFazenda(fazendaId: string): Promise<DietaFazenda |
 
 export async function salvarDietaFazenda(d: DietaFazenda) {
   await setDoc(doc(db, 'dieta_fazenda', d.id), d);
+}
+
+// ─── Lotes inativos (histórico) ───────────────────────────────────────────────
+
+export async function getLotesInativos(fazendaId: string): Promise<Lote[]> {
+  const snap = await getDocs(
+    query(collection(db, 'lotes'), where('fazendaId', '==', fazendaId), where('ativo', '==', false))
+  );
+  return snap.docs.map(d => d.data() as Lote)
+    .sort((a, b) => b.atualizadoEm.localeCompare(a.atualizadoEm));
+}
+
+// ─── Fazenda ──────────────────────────────────────────────────────────────────
+
+export async function getFazenda(fazendaId: string): Promise<Fazenda | null> {
+  const snap = await getDoc(doc(db, 'fazendas', fazendaId));
+  return snap.exists() ? snap.data() as Fazenda : null;
+}
+
+export async function salvarFazenda(fazenda: Fazenda) {
+  await setDoc(doc(db, 'fazendas', fazenda.id), fazenda);
+}
+
+// ─── Perfil usuário ───────────────────────────────────────────────────────────
+
+export async function atualizarNomeUsuario(uid: string, nome: string) {
+  await updateDoc(doc(db, 'usuarios', uid), { nome });
 }
